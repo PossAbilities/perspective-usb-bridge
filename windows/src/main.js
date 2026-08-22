@@ -80,8 +80,19 @@ function parseRemoteList(output) {
   const devices = [];
   const lines = output.split(/\r?\n/);
   for (const line of lines) {
-    const match = line.match(/^\s*-?\s*(?:busid\s+)?([\w.-]+):\s*(.*?)\s*(?:\(([0-9a-fA-F]{4}):([0-9a-fA-F]{4})\))?\s*$/i);
-    if (!match || !match[2]) continue;
+    let match = line.match(/^\s*-?\s*busid\s*:\s*([\w.-]+)\s*\((.*?)\)\s*$/i);
+    if (match) {
+      const metadata = match[2].match(/^(.*?)(?:\s+\(([0-9a-fA-F]{4}):([0-9a-fA-F]{4})\))?$/);
+      devices.push({
+        busId: match[1],
+        name: metadata[1],
+        vidPid: metadata[2] && metadata[3] ? `${metadata[2]}:${metadata[3]}` : 'USB device'
+      });
+      continue;
+    }
+
+    match = line.match(/^\s*-?\s*([\w.-]+):\s*(.*?)\s*(?:\(([0-9a-fA-F]{4}):([0-9a-fA-F]{4})\))?\s*$/i);
+    if (!match || !match[2] || match[1].toLowerCase() === 'busid') continue;
     devices.push({
       busId: match[1],
       name: match[2],
