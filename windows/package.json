@@ -6,6 +6,7 @@
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
+    "test": "node test/parseRemoteList.test.js",
     "pack": "electron-builder --win nsis"
   },
   "devDependencies": {

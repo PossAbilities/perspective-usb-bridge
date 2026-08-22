@@ -3,6 +3,7 @@ const path = require('path');
 const dgram = require('dgram');
 const { execFile, spawn } = require('child_process');
 const fs = require('fs');
+const { parseRemoteList } = require('./parseRemoteList');
 
 const DISCOVERY_PORT = 32401;
 const DISCOVERY_MAGIC_V2 = 'PERSPECTIVE_USB_BRIDGE_V2';
@@ -74,27 +75,6 @@ function runUsbip(args) {
       resolve((stdout || '').trim());
     });
   });
-}
-
-function parseRemoteList(output) {
-  const devices = [];
-  const lines = output.split(/\r?\n/);
-  for (const line of lines) {
-    let match = line.match(/^\s*-?\s*busid\s*:?\s*([\w.-]+)(?:\s*:\s*|\s+)(.*?)\s*$/i);
-    if (!match) match = line.match(/^\s*-?\s*([\w.-]+):\s*(.*?)\s*$/i);
-    if (!match || !match[2]) continue;
-    const metadata = match[2].match(/\(?([0-9a-fA-F]{4}):([0-9a-fA-F]{4})\)?\s*\)?$/);
-    const name = match[2]
-      .replace(/\(?[0-9a-fA-F]{4}:[0-9a-fA-F]{4}\)?\s*\)?$/, '')
-      .replace(/^\(|\)$/g, '')
-      .trim();
-    devices.push({
-      busId: match[1],
-      name: name || 'USB device',
-      vidPid: metadata ? `${metadata[1]}:${metadata[2]}` : 'USB device'
-    });
-  }
-  return devices;
 }
 
 function startDiscovery() {
