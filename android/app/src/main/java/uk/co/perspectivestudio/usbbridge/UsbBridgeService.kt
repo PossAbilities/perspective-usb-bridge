@@ -182,7 +182,7 @@ class UsbBridgeService : Service() {
 
     private fun notification(text: String): Notification =
         Notification.Builder(this, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.stat_sys_data_usb)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle("Perspective USB Bridge")
             .setContentText(text)
             .setOngoing(true)
