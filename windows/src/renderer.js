@@ -54,6 +54,8 @@ async function scan(auto=false) {
   devices.innerHTML=''; setStatus(auto ? 'Tablet found. Checking shared drives…' : 'Scanning…');
   try {
     const result = await window.bridge.list(target);
+    $('#rawResponse').textContent = result.raw || '(empty response)';
+    $('#diagnostics').hidden = false;
     if (!result.devices.length) return setStatus('Tablet found, but no USB drives are currently shared.');
     setStatus(`${result.devices.length} shared USB device${result.devices.length===1?'':'s'} found.`);
     for (const d of result.devices) {

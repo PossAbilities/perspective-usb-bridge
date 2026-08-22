@@ -11,3 +11,4 @@
   cursor: pointer;
 }
 .runtime-button:disabled { opacity: .55; cursor: wait; }
+.diagnostics pre { margin: 10px 0 0; max-height: 240px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--dim); font: 500 12px/1.45 'IBM Plex Mono'; }
