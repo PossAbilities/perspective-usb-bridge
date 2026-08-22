@@ -1,0 +1,28 @@
+# Android
+android/.gradle/
+android/local.properties
+android/**/build/
+*.apk
+*.aab
+*.jks
+*.keystore
+
+# Windows / Electron
+windows/node_modules/
+windows/dist/
+windows/out/
+windows/runtime/*.exe
+windows/runtime/RUNTIME-BUILD-INFO.txt
+windows/runtime/USBIP-WIN2-LICENSE.txt
+npm-debug.log*
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Secrets
+.env
+.env.*
+!.env.example

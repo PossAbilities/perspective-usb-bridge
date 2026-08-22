@@ -1,0 +1,23 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Perspective USB Bridge</title><link rel="stylesheet" href="styles.css"></head>
+<body>
+  <main class="shell">
+    <header class="brand"><img src="assets/ps-mark-primary.svg" alt=""><div><div class="eyebrow">PERSPECTIVE STUDIO</div><h1>USB Bridge.</h1><p>Your USB. Anywhere.</p></div></header>
+    <section class="card" id="runtimeCard">
+      <label>Windows USB driver</label>
+      <p class="hint" id="runtimeStatus">Checking USB/IP runtime…</p>
+      <button id="installRuntime" class="runtime-button" hidden>Install USB driver</button>
+      <p class="hint" id="runtimeWarning" hidden>Installing the driver can briefly restart USB devices connected to this Windows PC. Finish any active USB file copies first.</p>
+    </section>
+    <section class="card">
+      <label for="host">Samsung tablet</label>
+      <div class="row"><input id="host" placeholder="Finding your tablet…" spellcheck="false"><button id="scan">Find drives</button></div>
+      <p class="hint" id="discoveryHint">Listening for Perspective USB Bridge on your network. You can still type the tablet IP manually.</p>
+    </section>
+    <section id="status" class="status">Ready to scan.</section>
+    <section id="devices" class="devices"></section>
+    <button id="detach" class="secondary">Disconnect all</button>
+    <footer>Perspective USB Bridge · v0.5 multi-drive prototype</footer>
+  </main>
+<script src="renderer.js"></script></body></html>

@@ -1,0 +1,26 @@
+name: Build Windows client
+on: [workflow_dispatch, push]
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - name: Fetch signed USB/IP runtime
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./.github/scripts/fetch-usbip-runtime.ps1
+      - name: Install Node dependencies
+        working-directory: windows
+        run: npm install
+      - name: Build Perspective USB Bridge installer
+        working-directory: windows
+        run: npm run pack
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PerspectiveUSBBridge-Windows
+          path: windows/dist/*Setup*.exe

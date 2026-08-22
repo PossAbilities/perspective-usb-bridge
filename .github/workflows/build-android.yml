@@ -1,0 +1,25 @@
+name: Build Android APK
+on: [workflow_dispatch, push]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Build test APK
+        run: gradle -p android assembleDebug
+      - name: Name test APK clearly
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk PerspectiveUSBBridge-Android-v0.6.0-TEST.apk
+      - name: Verify APK exists
+        run: test -s PerspectiveUSBBridge-Android-v0.6.0-TEST.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PerspectiveUSBBridge-Android-v0.6.0-TEST
+          path: PerspectiveUSBBridge-Android-v0.6.0-TEST.apk

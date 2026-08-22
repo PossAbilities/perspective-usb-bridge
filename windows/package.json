@@ -1,0 +1,40 @@
+{
+  "name": "perspective-usb-bridge-windows",
+  "version": "0.6.0",
+  "private": true,
+  "description": "Perspective USB Bridge Windows client",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-builder --win nsis"
+  },
+  "devDependencies": {
+    "electron": "^37.2.0",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "uk.co.perspectivestudio.usbbridge",
+    "productName": "Perspective USB Bridge",
+    "artifactName": "PerspectiveUSBBridge-Windows-Setup-${version}.${ext}",
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "runtime",
+        "to": "runtime",
+        "filter": ["**/*"]
+      }
+    ]
+  }
+}

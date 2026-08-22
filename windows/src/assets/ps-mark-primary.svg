@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Perspective Studio mark">
+  <circle cx="256" cy="256" r="232" fill="none" stroke="#161042" stroke-width="26"/>
+  <circle cx="256" cy="256" r="219" fill="#F3F1FB"/>
+  <path fill="#161042" fill-rule="evenodd" d="M160 140h96a96 96 0 1 1 0 192h-48v40h-48V140zm48 48v96h48a48 48 0 1 0 0-96h-48z"/>
+  <circle cx="256" cy="236" r="36" fill="none" stroke="#161042" stroke-width="12"/>
+  <circle cx="256" cy="236" r="24" fill="#161042"/>
+  <circle cx="256" cy="236" r="14" fill="#CFE96A"/>
+  <path d="M208 292v40h46z" fill="#F4592B"/>
+</svg>
