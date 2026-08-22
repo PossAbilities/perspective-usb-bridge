@@ -7,7 +7,16 @@ android {
     namespace = "uk.co.perspectivestudio.usbbridge"
     compileSdk = 36
     defaultConfig { applicationId = "uk.co.perspectivestudio.usbbridge"; minSdk = 26; targetSdk = 36; versionCode = 6; versionName = "0.6.0" }
-    buildFeatures { compose = true }
+    compileOptions {
+     sourceCompatibility = JavaVersion.VERSION_17
+     targetCompatibility = JavaVersion.VERSION_17
+   }
+
+   kotlinOptions {
+   jvmTarget = "17"
+   }
+
+   buildFeatures { compose = true }
 }
 dependencies {
     implementation("androidx.core:core-ktx:1.16.0")
