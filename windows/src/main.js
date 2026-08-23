@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const os = require('os');
 const dgram = require('dgram');
@@ -342,8 +342,6 @@ ipcMain.handle('usbip:detach-all', async () => {
   if (failures.length) throw new Error(failures.join('; '));
   return `Disconnected ${ports.length} device${ports.length === 1 ? '' : 's'}.`;
 });
-
-ipcMain.handle('shell:open-explorer', async () => { await shell.openPath('C:\\'); return true; });
 
 // -------------------------------------------------------------------- lifecycle
 

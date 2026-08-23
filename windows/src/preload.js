@@ -8,7 +8,6 @@ contextBridge.exposeInMainWorld('bridge', {
   detach: port => ipcRenderer.invoke('usbip:detach', port),
   detachAll: () => ipcRenderer.invoke('usbip:detach-all'),
   probe: () => ipcRenderer.invoke('usbip:probe'),
-  openExplorer: () => ipcRenderer.invoke('shell:open-explorer'),
   onDiscovered: callback => ipcRenderer.on('bridge:discovered', (_event, data) => callback(data)),
   onDiscoveryError: callback => ipcRenderer.on('bridge:discovery-error', (_event, message) => callback(message))
 });
