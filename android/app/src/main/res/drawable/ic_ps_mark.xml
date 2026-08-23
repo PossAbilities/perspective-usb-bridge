@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Perspective Studio mark, converted from branding/ps-mark-primary.svg.
+  VectorDrawable has no <circle>, so each circle is an arc pair.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="512"
+    android:viewportHeight="512">
+  <path
+      android:pathData="M24,256 a232,232 0 1,0 464,0 a232,232 0 1,0 -464,0 Z"
+      android:strokeColor="#161042"
+      android:strokeWidth="26"/>
+  <path
+      android:pathData="M37,256 a219,219 0 1,0 438,0 a219,219 0 1,0 -438,0 Z"
+      android:fillColor="#F3F1FB"/>
+  <path
+      android:pathData="M160,140 h96 a96,96 0 1,1 0,192 h-48 v40 h-48 V140 Z M208,188 v96 h48 a48,48 0 1,0 0,-96 h-48 Z"
+      android:fillColor="#161042"
+      android:fillType="evenOdd"/>
+  <path
+      android:pathData="M220,236 a36,36 0 1,0 72,0 a36,36 0 1,0 -72,0 Z"
+      android:strokeColor="#161042"
+      android:strokeWidth="12"/>
+  <path
+      android:pathData="M232,236 a24,24 0 1,0 48,0 a24,24 0 1,0 -48,0 Z"
+      android:fillColor="#161042"/>
+  <path
+      android:pathData="M242,236 a14,14 0 1,0 28,0 a14,14 0 1,0 -28,0 Z"
+      android:fillColor="#CFE96A"/>
+  <path
+      android:pathData="M208,292 v40 h46 Z"
+      android:fillColor="#F4592B"/>
+</vector>

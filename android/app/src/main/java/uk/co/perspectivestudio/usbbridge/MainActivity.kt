@@ -15,14 +15,17 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -206,10 +209,24 @@ class MainActivity : ComponentActivity() {
                     .verticalScroll(rememberScrollState())
                     .padding(24.dp)
             ) {
-                Text("PERSPECTIVE STUDIO", color = Orange, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(6.dp))
-                Text("USB Bridge.", color = TextPrimary, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.ExtraBold)
-                Text("Your USB. Anywhere.", color = TextDim)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Image(
+                        painter = painterResource(R.drawable.ic_ps_mark),
+                        contentDescription = null,
+                        modifier = Modifier.size(56.dp)
+                    )
+                    Spacer(Modifier.width(14.dp))
+                    Column {
+                        Text("PERSPECTIVE STUDIO", color = Orange, fontWeight = FontWeight.Bold)
+                        Text(
+                            "USB Bridge.",
+                            color = TextPrimary,
+                            style = MaterialTheme.typography.headlineLarge,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                        Text("Your USB. Anywhere.", color = TextDim)
+                    }
+                }
                 Spacer(Modifier.height(18.dp))
 
                 Card(

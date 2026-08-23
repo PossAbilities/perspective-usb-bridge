@@ -300,7 +300,7 @@ class UsbBridgeService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
         return Notification.Builder(this, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle("Perspective USB Bridge")
             .setContentText(text)
             .setContentIntent(open)

@@ -39,6 +39,23 @@ If discovery still fails — for example on a guest network with client isolatio
 
 The Windows client uses the open-source `usbip-win2` runtime. Release builds fetch the current upstream x64 installer, bundle its licence, and record the exact upstream release, asset and SHA-256 hash. The Perspective app asks for Administrator permission before installing the driver/runtime.
 
+## Branding
+
+Both apps use the Perspective Studio mark in `branding/ps-mark-primary.svg`.
+
+On Android it is an adaptive launcher icon built from vector drawables, so it
+stays sharp at any density, with a monochrome variant for themed icons and the
+status bar. On Windows it becomes the executable, installer and uninstaller
+icon, plus the wizard header and sidebar artwork.
+
+The Windows raster formats and the legacy Android mipmaps are committed, so a
+normal build needs no image tooling. To regenerate them after changing the mark:
+
+```
+npm --prefix tools/branding install
+node tools/branding/build-icons.mjs
+```
+
 ## Testing without hardware
 
 ```

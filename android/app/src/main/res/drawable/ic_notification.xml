@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Status bar icon. Android tints small icons, so this must be a white,
+  alpha-only silhouette: the monogram alone, with the bowl left hollow.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="512"
+    android:viewportHeight="512">
+  <path
+      android:pathData="M160,140 h96 a96,96 0 1,1 0,192 h-48 v40 h-48 V140 Z M208,188 v96 h48 a48,48 0 1,0 0,-96 h-48 Z"
+      android:fillColor="#FFFFFFFF"
+      android:fillType="evenOdd"/>
+</vector>

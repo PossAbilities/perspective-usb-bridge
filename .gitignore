@@ -30,3 +30,5 @@ Thumbs.db
 # Protocol harness
 tools/usbip-harness/.gradle/
 tools/usbip-harness/build/
+tools/branding/node_modules/
+tools/branding/package-lock.json

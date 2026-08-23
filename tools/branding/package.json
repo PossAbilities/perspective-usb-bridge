@@ -1,0 +1,8 @@
+{
+  "name": "perspective-branding-tools",
+  "private": true,
+  "type": "module",
+  "description": "Regenerates the Windows raster icons from the Perspective Studio mark.",
+  "scripts": { "build": "node build-icons.mjs" },
+  "dependencies": { "sharp": "^0.34.2" }
+}
