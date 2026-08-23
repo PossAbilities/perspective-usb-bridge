@@ -17,6 +17,9 @@ jobs:
       - name: Install Node dependencies
         working-directory: windows
         run: npm install
+      - name: Run Windows client tests
+        working-directory: windows
+        run: npm test
       - name: Build Perspective USB Bridge installer
         working-directory: windows
         run: npm run pack

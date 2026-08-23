@@ -15,13 +15,17 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
+      - name: USB/IP protocol conformance harness
+        run: gradle -p tools/usbip-harness run --quiet
+      - name: Android unit tests
+        run: gradle -p android testDebugUnitTest
       - name: Build test APK
         run: gradle -p android assembleDebug
       - name: Name test APK clearly
-        run: cp android/app/build/outputs/apk/debug/app-debug.apk PerspectiveUSBBridge-Android-v0.6.0-TEST.apk
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk PerspectiveUSBBridge-Android-v0.7.0-TEST.apk
       - name: Verify APK exists
-        run: test -s PerspectiveUSBBridge-Android-v0.6.0-TEST.apk
+        run: test -s PerspectiveUSBBridge-Android-v0.7.0-TEST.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: PerspectiveUSBBridge-Android-v0.6.0-TEST
-          path: PerspectiveUSBBridge-Android-v0.6.0-TEST.apk
+          name: PerspectiveUSBBridge-Android-v0.7.0-TEST
+          path: PerspectiveUSBBridge-Android-v0.7.0-TEST.apk
