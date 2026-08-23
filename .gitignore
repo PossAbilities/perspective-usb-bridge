@@ -26,3 +26,7 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+
+# Protocol harness
+tools/usbip-harness/.gradle/
+tools/usbip-harness/build/

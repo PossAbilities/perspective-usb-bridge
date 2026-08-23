@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <!--
+    Matches USB mass storage, bulk-only transport. Android checks this against
+    the device descriptor and every interface descriptor, so composite drives
+    that declare storage at interface level are matched too.
+
+    Deliberately narrow: a catch-all filter would relaunch the app every time a
+    keyboard, dock or hub is plugged into the tablet.
+  -->
+  <usb-device class="8" subclass="6" protocol="80" />
+</resources>

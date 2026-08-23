@@ -6,17 +6,24 @@ plugins {
 android {
     namespace = "uk.co.perspectivestudio.usbbridge"
     compileSdk = 36
-    defaultConfig { applicationId = "uk.co.perspectivestudio.usbbridge"; minSdk = 26; targetSdk = 36; versionCode = 6; versionName = "0.6.0" }
+    defaultConfig {
+        applicationId = "uk.co.perspectivestudio.usbbridge"
+        minSdk = 26
+        targetSdk = 36
+        versionCode = 7
+        versionName = "0.7.0"
+    }
     compileOptions {
-     sourceCompatibility = JavaVersion.VERSION_17
-     targetCompatibility = JavaVersion.VERSION_17
-   }
-
-   kotlinOptions {
-   jvmTarget = "17"
-   }
-
-   buildFeatures { compose = true }
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+    buildFeatures { compose = true }
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
 }
 dependencies {
     implementation("androidx.core:core-ktx:1.16.0")
@@ -26,4 +33,5 @@ dependencies {
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
     debugImplementation("androidx.compose.ui:ui-tooling")
+    testImplementation("junit:junit:4.13.2")
 }

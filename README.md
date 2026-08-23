@@ -2,7 +2,7 @@
 
 **Perspective Studio — USB over network for Samsung/Android to Windows.**
 
-Current version: **v0.6.0 prototype**
+Current version: **v0.7.0 prototype**
 
 ## Goal
 
@@ -20,23 +20,56 @@ Intended experience:
 
 ## Hub support
 
-The Android host uses a single USB/IP server on TCP port **3240** and can export multiple downstream USB devices at the same time. USB hubs themselves are not exported; devices connected through them are listed separately. Each exported device has its own bus ID and transfer lock.
+The Android host uses a single USB/IP server on TCP port **3240** and can export multiple downstream USB devices at the same time. USB hubs themselves are not exported; devices connected through them are listed separately. Each exported device has its own bus ID.
 
 A powered USB-C hub is recommended when using multiple SSDs/HDDs because the Samsung tablet may not be able to supply enough power for several high-draw devices.
+
+## Discovery
+
+The tablet is discoverable on UDP **32401** while the Android app is open, even before anything is shared. Discovery works two ways:
+
+- The tablet announces itself every two seconds to the limited broadcast address **and** to each interface's subnet broadcast address.
+- The Windows client also probes outwards; the tablet answers those probes with a unicast reply.
+
+The probe path matters because plenty of access points drop `255.255.255.255`, and Windows Firewall discards unsolicited inbound UDP. The Windows installer adds inbound and outbound firewall rules for UDP/32401 on private and domain profiles.
+
+If discovery still fails — for example on a guest network with client isolation — the Android app shows the tablet's IP address, and you can type it into the Windows client by hand.
 
 ## Windows runtime
 
 The Windows client uses the open-source `usbip-win2` runtime. Release builds fetch the current upstream x64 installer, bundle its licence, and record the exact upstream release, asset and SHA-256 hash. The Perspective app asks for Administrator permission before installing the driver/runtime.
 
+## Testing without hardware
+
+```
+cd tools/usbip-harness && gradle run     # USB/IP wire-protocol conformance
+cd android && gradle testDebugUnitTest   # descriptor parsing
+cd windows && npm test                   # usbip CLI output parsing
+```
+
+The harness runs the app's real USB/IP server against a simulated mass-storage device and asserts the bytes it puts on the wire. See `tools/usbip-harness/README.md`.
+
 ## Build outputs
 
 Until Android release signing is configured, GitHub builds a clearly labelled test APK:
 
-- `PerspectiveUSBBridge-Android-v0.6.0-TEST.apk`
-- `PerspectiveUSBBridge-Windows-Setup-0.6.0.exe`
+- `PerspectiveUSBBridge-Android-v0.7.0-TEST.apk`
+- `PerspectiveUSBBridge-Windows-Setup-0.7.0.exe`
 
-A tag such as `v0.6.0` triggers the combined release workflow. It refuses to publish if either platform artifact is missing.
+A tag such as `v0.7.0` triggers the combined release workflow. It refuses to publish if either platform artifact is missing.
+
+> The `PerspectiveUSBBridge-GitHub-Ready-v0.6.zip` at the repository root is a snapshot of the older v0.6 code. Do not install from it.
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| Windows never finds the tablet | Broadcast blocked, or firewall | Type the IP shown in the Android app; check both devices are on the same Wi-Fi with client isolation off |
+| "Tablet found, but no USB drives are currently shared" | Nothing shared yet | Tap **Share with Windows** on the tablet |
+| "The USB interfaces could not be claimed" | Android has the drive mounted | Eject the drive in Android's Files app, then share it again |
+| Connects, but no drive letter appears | The volume is offline or unformatted | Check Windows Disk Management |
+| Transfers stall when the tablet screen sleeps | Wi-Fi power saving | The service holds a wake lock and a high-performance Wi-Fi lock; also disable battery optimisation for the app |
 
 ## Status
 
-This is an early hardware prototype. CONTROL and BULK USB/IP forwarding are implemented for mass-storage-first testing, but the project still requires real-device validation with the target Samsung tablet, SSK 2 TB SSD, and a USB hub before it should be treated as production-ready.
+This is an early hardware prototype. CONTROL and BULK USB/IP forwarding are implemented and covered by an automated protocol harness, but the project still requires real-device validation with the target Samsung tablet, SSK 2 TB SSD, and a USB hub before it should be treated as production-ready.

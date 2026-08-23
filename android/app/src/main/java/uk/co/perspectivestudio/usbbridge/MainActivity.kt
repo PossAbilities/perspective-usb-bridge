@@ -1,10 +1,12 @@
 package uk.co.perspectivestudio.usbbridge
 
+import android.Manifest
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.hardware.usb.UsbConstants
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
@@ -12,6 +14,7 @@ import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -40,9 +43,16 @@ class MainActivity : ComponentActivity() {
     private var bridgeState = mutableStateOf("Idle")
     private var bridgeMessage = mutableStateOf("Plug in a USB drive to begin.")
     private var bridgeLog = mutableStateOf<List<String>>(emptyList())
+    private var hostAddress = mutableStateOf<String?>(null)
+    private var permissionTick = mutableStateOf(0)
     private var pendingShareDeviceId: Int? = null
+    private var receiversRegistered = false
 
-    private val receiver = object : BroadcastReceiver() {
+    private val notificationPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+
+    /** Our own broadcasts: app-private, so they stay NOT_EXPORTED. */
+    private val appReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             when (intent.action) {
                 ACTION_USB_PERMISSION -> {
@@ -62,22 +72,31 @@ class MainActivity : ComponentActivity() {
                         bridgeMessage.value = "USB access is required before the drive can be shared."
                     }
                 }
-                UsbManager.ACTION_USB_DEVICE_ATTACHED, UsbManager.ACTION_USB_DEVICE_DETACHED -> {
-                    refreshDevices()
-                    if (devicesState.value.isEmpty()) {
-                        sharedIds.value = emptySet()
-                        bridgeState.value = "Idle"
-                        bridgeMessage.value = "Plug in a USB drive to begin."
-                    }
-                }
                 UsbBridgeService.ACTION_STATE -> {
                     bridgeState.value = intent.getStringExtra(UsbBridgeService.EXTRA_STATE) ?: "Idle"
                     bridgeMessage.value = intent.getStringExtra(UsbBridgeService.EXTRA_MESSAGE) ?: ""
-                    sharedIds.value = intent.getIntegerArrayListExtra(UsbBridgeService.EXTRA_SHARED_IDS)?.toSet() ?: sharedIds.value
+                    sharedIds.value = intent.getIntegerArrayListExtra(UsbBridgeService.EXTRA_SHARED_IDS)?.toSet()
+                        ?: sharedIds.value
+                    intent.getStringExtra(UsbBridgeService.EXTRA_HOST_ADDRESS)?.let { hostAddress.value = it }
                     if (bridgeMessage.value.isNotBlank()) {
-                        bridgeLog.value = (listOf(bridgeMessage.value) + bridgeLog.value).take(10)
+                        bridgeLog.value = (listOf(bridgeMessage.value) + bridgeLog.value).take(12)
                     }
                 }
+            }
+        }
+    }
+
+    /**
+     * System broadcasts. Android 14+ drops these entirely for a receiver declared
+     * NOT_EXPORTED, which is why attach/detach never refreshed the drive list.
+     */
+    private val systemReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            refreshDevices()
+            if (devicesState.value.isEmpty()) {
+                sharedIds.value = emptySet()
+                bridgeState.value = "Idle"
+                bridgeMessage.value = "Plug in a USB drive to begin."
             }
         }
     }
@@ -86,7 +105,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         usb = getSystemService(Context.USB_SERVICE) as UsbManager
         refreshDevices()
-        registerBridgeReceiver()
+        registerBridgeReceivers()
+        requestNotificationPermission()
         setContent {
             MaterialTheme {
                 App(
@@ -95,29 +115,71 @@ class MainActivity : ComponentActivity() {
                     shared = sharedIds.value,
                     state = bridgeState.value,
                     message = bridgeMessage.value,
-                    log = bridgeLog.value
+                    address = hostAddress.value,
+                    log = bridgeLog.value,
+                    permissionTick = permissionTick.value
                 )
             }
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        refreshDevices()
+        // Keep the tablet discoverable while the app is open so the Windows client
+        // can find it before anything has been shared.
+        sendToService(UsbBridgeService.ACTION_START_HOST)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        if (sharedIds.value.isEmpty()) sendToService(UsbBridgeService.ACTION_RELEASE_HOST)
+    }
+
     override fun onDestroy() {
-        unregisterReceiver(receiver)
+        if (receiversRegistered) {
+            runCatching { unregisterReceiver(appReceiver) }
+            runCatching { unregisterReceiver(systemReceiver) }
+            receiversRegistered = false
+        }
         super.onDestroy()
     }
 
-    private fun refreshDevices() {
-        devicesState.value = usb.deviceList.values.sortedWith(compareBy<UsbDevice>({ isHub(it) }, { displayName(it) }))
+    private fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT < 33) return
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+            == PackageManager.PERMISSION_GRANTED
+        ) return
+        notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
 
-    private fun registerBridgeReceiver() {
-        val filter = IntentFilter().apply {
-            addAction(ACTION_USB_PERMISSION)
-            addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED)
-            addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
-            addAction(UsbBridgeService.ACTION_STATE)
-        }
-        ContextCompat.registerReceiver(this, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+    private fun refreshDevices() {
+        devicesState.value = usb.deviceList.values
+            .sortedWith(compareBy<UsbDevice>({ isHub(it) }, { displayName(it) }))
+        permissionTick.value++
+    }
+
+    private fun registerBridgeReceivers() {
+        if (receiversRegistered) return
+        ContextCompat.registerReceiver(
+            this,
+            appReceiver,
+            IntentFilter().apply {
+                addAction(ACTION_USB_PERMISSION)
+                addAction(UsbBridgeService.ACTION_STATE)
+            },
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
+        ContextCompat.registerReceiver(
+            this,
+            systemReceiver,
+            IntentFilter().apply {
+                addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED)
+                addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
+            },
+            ContextCompat.RECEIVER_EXPORTED
+        )
+        receiversRegistered = true
     }
 
     private fun Intent.usbDeviceExtra(): UsbDevice? = if (Build.VERSION.SDK_INT >= 33) {
@@ -133,7 +195,9 @@ class MainActivity : ComponentActivity() {
         shared: Set<Int>,
         state: String,
         message: String,
-        log: List<String>
+        address: String?,
+        log: List<String>,
+        permissionTick: Int
     ) {
         Surface(color = Midnight, modifier = Modifier.fillMaxSize()) {
             Column(
@@ -146,7 +210,25 @@ class MainActivity : ComponentActivity() {
                 Spacer(Modifier.height(6.dp))
                 Text("USB Bridge.", color = TextPrimary, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.ExtraBold)
                 Text("Your USB. Anywhere.", color = TextDim)
-                Spacer(Modifier.height(26.dp))
+                Spacer(Modifier.height(18.dp))
+
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = PanelRaised),
+                    shape = RoundedCornerShape(22.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(Modifier.padding(18.dp)) {
+                        Text("THIS TABLET", color = Lime, fontWeight = FontWeight.Bold)
+                        Text(
+                            address?.let { "$it · USB/IP port ${UsbIpServer.PORT}" }
+                                ?: "Waiting for a Wi-Fi connection…",
+                            color = TextPrimary
+                        )
+                        Text("Type this address into Windows if it is not found automatically.", color = TextDim)
+                    }
+                }
+
+                Spacer(Modifier.height(18.dp))
 
                 if (devices.isEmpty()) {
                     Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(22.dp)) {
@@ -175,7 +257,7 @@ class MainActivity : ComponentActivity() {
                     if (shareable.isEmpty()) {
                         Text("The hub is connected, but no downstream USB drives are visible yet.", color = TextDim)
                     } else {
-                        shareable.forEach { DeviceCard(usb, it, it.deviceId in shared) }
+                        shareable.forEach { DeviceCard(usb, it, it.deviceId in shared, permissionTick) }
                     }
                 }
 
@@ -195,13 +277,16 @@ class MainActivity : ComponentActivity() {
                 }
 
                 Spacer(Modifier.height(30.dp))
-                Text("v0.6 multi-drive + hub prototype", color = TextDim)
+                Text("v0.7 multi-drive + hub prototype", color = TextDim)
             }
         }
     }
 
     @Composable
-    private fun DeviceCard(usb: UsbManager, device: UsbDevice, isShared: Boolean) {
+    private fun DeviceCard(usb: UsbManager, device: UsbDevice, isShared: Boolean, permissionTick: Int) {
+        // permissionTick forces recomposition after a permission grant, otherwise
+        // the button keeps reading the stale hasPermission() result.
+        val hasPermission = remember(device.deviceId, permissionTick) { usb.hasPermission(device) }
         Card(
             colors = CardDefaults.cardColors(containerColor = Panel),
             shape = RoundedCornerShape(22.dp),
@@ -227,7 +312,7 @@ class MainActivity : ComponentActivity() {
                         colors = ButtonDefaults.buttonColors(containerColor = Orange),
                         shape = RoundedCornerShape(999.dp)
                     ) {
-                        Text(if (usb.hasPermission(device)) "Share with Windows" else "Allow access")
+                        Text(if (hasPermission) "Share with Windows" else "Allow access")
                     }
                 }
             }
@@ -257,13 +342,24 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun stopBridge(device: UsbDevice) {
-        startService(Intent(this, UsbBridgeService::class.java).apply {
+        val intent = Intent(this, UsbBridgeService::class.java).apply {
             action = UsbBridgeService.ACTION_STOP
             putExtra(UsbBridgeService.EXTRA_DEVICE_ID, device.deviceId)
-        })
+        }
+        ContextCompat.startForegroundService(this, intent)
     }
 
-    private fun displayName(device: UsbDevice): String = device.productName ?: "USB device"
+    private fun sendToService(action: String) {
+        runCatching {
+            ContextCompat.startForegroundService(
+                this,
+                Intent(this, UsbBridgeService::class.java).setAction(action)
+            )
+        }
+    }
+
+    private fun displayName(device: UsbDevice): String =
+        device.productName?.takeIf { it.isNotBlank() } ?: "USB device"
 
     private fun isHub(device: UsbDevice): Boolean {
         if (device.deviceClass == UsbConstants.USB_CLASS_HUB) return true
