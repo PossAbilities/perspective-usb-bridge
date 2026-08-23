@@ -59,20 +59,25 @@ class MainActivity : ComponentActivity() {
         override fun onReceive(context: Context, intent: Intent) {
             when (intent.action) {
                 ACTION_USB_PERMISSION -> {
-                    val device = intent.usbDeviceExtra()
-                    val granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)
+                    // EXTRA_DEVICE can be missing: the framework fills the result extras
+                    // in through PendingIntent.send(), which an immutable PendingIntent
+                    // discards. Fall back to the device we asked about, and treat
+                    // hasPermission() rather than the extras as the source of truth.
+                    val device = intent.usbDeviceExtra() ?: pendingShareDeviceId?.let(::deviceById)
                     refreshDevices()
-                    if (granted && device != null) {
+                    if (device != null && usb.hasPermission(device)) {
                         bridgeState.value = "Ready"
                         bridgeMessage.value = "USB access granted for ${displayName(device)}."
-                        if (pendingShareDeviceId == device.deviceId) {
+                        if (pendingShareDeviceId == null || pendingShareDeviceId == device.deviceId) {
                             pendingShareDeviceId = null
                             startBridge(device)
                         }
                     } else {
                         pendingShareDeviceId = null
                         bridgeState.value = "Permission denied"
-                        bridgeMessage.value = "USB access is required before the drive can be shared."
+                        bridgeMessage.value =
+                            "Android did not grant USB access. Tap Allow access again and choose OK, " +
+                                "then keep this app open."
                     }
                 }
                 UsbBridgeService.ACTION_STATE -> {
@@ -110,6 +115,7 @@ class MainActivity : ComponentActivity() {
         refreshDevices()
         registerBridgeReceivers()
         requestNotificationPermission()
+        handleAttachIntent(intent)
         setContent {
             MaterialTheme {
                 App(
@@ -124,6 +130,26 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleAttachIntent(intent)
+    }
+
+    /**
+     * Android launches us through the manifest's USB_DEVICE_ATTACHED filter when a
+     * drive is plugged in, and that route grants USB permission for the device
+     * without a dialog. Pick it up so the card is immediately shareable.
+     */
+    private fun handleAttachIntent(intent: Intent?) {
+        if (intent?.action != UsbManager.ACTION_USB_DEVICE_ATTACHED) return
+        val device = intent.usbDeviceExtra() ?: return
+        refreshDevices()
+        if (isHub(device) || !usb.hasPermission(device)) return
+        bridgeState.value = "Ready"
+        bridgeMessage.value = "${displayName(device)} is connected and ready to share."
     }
 
     override fun onStart() {
@@ -337,16 +363,27 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun requestUsbPermission(device: UsbDevice) {
+        // The PendingIntent must be MUTABLE. UsbManager reports its answer by
+        // filling EXTRA_DEVICE and EXTRA_PERMISSION_GRANTED into the intent it
+        // sends back, and an immutable PendingIntent silently drops them, so
+        // every request came back looking like a denial no matter what the user
+        // tapped. setPackage keeps the intent explicit, which is what Android 14+
+        // requires of a mutable PendingIntent.
+        val mutability =
+            if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0
         val pendingIntent = PendingIntent.getBroadcast(
             this,
             device.deviceId,
             Intent(ACTION_USB_PERMISSION).setPackage(packageName),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            mutability or PendingIntent.FLAG_UPDATE_CURRENT
         )
         usb.requestPermission(device, pendingIntent)
         bridgeState.value = "Waiting"
         bridgeMessage.value = "Waiting for Android USB permission for ${displayName(device)}."
     }
+
+    private fun deviceById(deviceId: Int): UsbDevice? =
+        usb.deviceList.values.firstOrNull { it.deviceId == deviceId }
 
     private fun startBridge(device: UsbDevice) {
         bridgeState.value = "Preparing"
