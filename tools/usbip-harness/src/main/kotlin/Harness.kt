@@ -254,6 +254,11 @@ fun main() {
 
     c.socket.close()
     server.stop()
-    println(if (failures == 0) "\nALL CHECKS PASSED" else "\n$failures CHECK(S) FAILED")
-    if (failures > 0) kotlin.system.exitProcess(1)
+
+    println("\n=== Media bridge protocol ===")
+    val mediaFailures = runMediaProtocolChecks()
+
+    val total = failures + mediaFailures
+    println(if (total == 0) "\nALL CHECKS PASSED" else "\n$total CHECK(S) FAILED")
+    if (total > 0) kotlin.system.exitProcess(1)
 }
