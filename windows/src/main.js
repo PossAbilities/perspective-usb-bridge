@@ -4,7 +4,7 @@ const { app, BrowserWindow, ipcMain, shell } = require('electron');
 const path = require('path');
 const os = require('os');
 const dgram = require('dgram');
-const { execFile, spawn } = require('child_process');
+const { execFile, execFileSync, spawn } = require('child_process');
 const fs = require('fs');
 const { parseRemoteList, parseAttachedPorts } = require('./parseRemoteList');
 
@@ -19,12 +19,34 @@ let mainWindow = null;
 let discoverySocket = null;
 let probeTimer = null;
 
+/**
+ * usbip.exe as recorded on PATH by the upstream installer. Guessing at fixed
+ * directories misses an install made to a custom location, and a missed install
+ * is worse than cosmetic: the app offers to install the driver again, and a
+ * second copy leaves two VHCI root devices, which makes the runtime refuse to
+ * run at all with "Multiple instances of VHCI device interface found".
+ */
+function usbipOnPath() {
+  try {
+    const found = execFileSync('where', ['usbip.exe'], {
+      windowsHide: true,
+      encoding: 'utf8',
+      timeout: 5000
+    });
+    return found.split(/\r?\n/).map(line => line.trim()).find(line => line && fs.existsSync(line)) || '';
+  } catch {
+    return ''; // `where` exits non-zero when nothing matches
+  }
+}
+
 function usbipCandidates() {
   return [
     process.env.PERSPECTIVE_USBIP_EXE,
+    usbipOnPath(),
     'C:\\Program Files\\USBip\\usbip.exe',
     'C:\\Program Files\\usbip-win2\\usbip.exe',
     'C:\\Program Files (x86)\\USBip\\usbip.exe',
+    'C:\\Program Files (x86)\\usbip-win2\\usbip.exe',
     path.join(process.resourcesPath || '', 'usbip', 'usbip.exe')
   ].filter(Boolean);
 }
@@ -200,6 +222,16 @@ ipcMain.handle('usbip:runtime-status', async () => runtimeStatus());
 ipcMain.handle('usbip:probe', async () => { sendProbe(); return true; });
 
 ipcMain.handle('usbip:install-runtime', async () => {
+  // Never install over an existing copy. Two installs leave two VHCI root
+  // devices and the runtime then refuses to start.
+  const current = runtimeStatus();
+  if (current.installed) {
+    throw new Error(
+      `A USB/IP runtime is already installed at ${current.path}. Installing a second copy would ` +
+      'stop it working. Uninstall the existing one first if you need to replace it.'
+    );
+  }
+
   const installer = bundledRuntimeInstaller();
   if (!installer) throw new Error('The signed USB/IP runtime was not bundled with this build.');
 
