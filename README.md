@@ -88,6 +88,22 @@ A tag such as `v0.7.0` triggers the combined release workflow. It refuses to pub
 | Connects, but no drive letter appears | The volume is offline or unformatted | Check Windows Disk Management |
 | Transfers stall when the tablet screen sleeps | Wi-Fi power saving | The service holds a wake lock and a high-performance Wi-Fi lock; also disable battery optimisation for the app |
 
+### One-command connect
+
+`tools/windows/Connect-PerspectiveDrive.ps1` does the whole Windows side in one
+go: checks for duplicate driver installs, installs the bundled runtime if it is
+missing, finds the tablet, lists and attaches the shared drive, then brings the
+disk online and gives it a drive letter. Right-click it and choose **Run with
+PowerShell**, or:
+
+```
+powershell -ExecutionPolicy Bypass -File .\tools\windows\Connect-PerspectiveDrive.ps1
+```
+
+It elevates itself if needed, and takes `-TabletIp`, `-BusId`, `-NoMount` and
+`-SkipInstall`. It never initialises, formats or partitions anything, so it
+cannot destroy data on the drive.
+
 ### Removing a duplicate USB/IP driver
 
 `usbip-win2` refuses to run when more than one VHCI root device is registered,
