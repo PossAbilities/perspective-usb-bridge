@@ -4,7 +4,7 @@ contextBridge.exposeInMainWorld('bridge', {
   installRuntime: () => ipcRenderer.invoke('usbip:install-runtime'),
   list: host => ipcRenderer.invoke('usbip:list', host),
   ports: () => ipcRenderer.invoke('usbip:ports'),
-  attach: (host, busId) => ipcRenderer.invoke('usbip:attach', host, busId),
+  attach: (host, busId, vidPid) => ipcRenderer.invoke('usbip:attach', host, busId, vidPid),
   detach: port => ipcRenderer.invoke('usbip:detach', port),
   detachAll: () => ipcRenderer.invoke('usbip:detach-all'),
   probe: () => ipcRenderer.invoke('usbip:probe'),

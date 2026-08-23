@@ -44,7 +44,9 @@ class UsbBridgeService : Service() {
 
     private lateinit var usbManager: UsbManager
     private val shared = ConcurrentHashMap<Int, SharedUsbDevice>()
-    private val nextDevNum = AtomicInteger(1)
+    // Only used when Android will not tell us the real USB address. Starts high
+    // so a synthesised address can never collide with a real one.
+    private val nextDevNum = AtomicInteger(101)
     private var usbIpServer: UsbIpServer? = null
     private var discoveryBeacon: DiscoveryBeacon? = null
     private var wakeLock: PowerManager.WakeLock? = null
@@ -180,13 +182,14 @@ class UsbBridgeService : Service() {
             return
         }
 
+        val (busNum, devNum) = busAddress(device)
         val exported = SharedUsbDevice(
             device = device,
             connection = opened,
             claimedInterfaces = claimed,
             descriptors = descriptors,
-            busNum = 1,
-            devNum = nextDevNum.getAndIncrement()
+            busNum = busNum,
+            devNum = devNum
         )
         shared[device.deviceId] = exported
         publish(
@@ -256,6 +259,24 @@ class UsbBridgeService : Service() {
             "${shared.size} shared: $names$suffix"
         }
         getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification(text))
+    }
+
+    /**
+     * Bus ID for the USB/IP export.
+     *
+     * Android names devices after their real Linux path, /dev/bus/usb/BBB/DDD,
+     * so the bus and address can be reused verbatim. That keeps the bus ID
+     * stable when a drive is unshared and shared again; a plain counter handed
+     * out a new ID every time, which left Windows attaching a bus ID the tablet
+     * had already retired.
+     */
+    private fun busAddress(device: UsbDevice): Pair<Int, Int> {
+        val match = Regex("/dev/bus/usb/(\\d+)/(\\d+)").find(device.deviceName.orEmpty())
+        val bus = match?.groupValues?.get(1)?.toIntOrNull() ?: 0
+        val address = match?.groupValues?.get(2)?.toIntOrNull() ?: 0
+        val taken = shared.values.any { it.busNum == bus && it.devNum == address }
+        return if (bus > 0 && address > 0 && !taken) bus to address
+        else 1 to nextDevNum.getAndIncrement()
     }
 
     private fun isHub(device: UsbDevice): Boolean {

@@ -33,8 +33,19 @@ function explain(message) {
   if (/timed out|10060|unreachable/i.test(text)) {
     return 'No reply from the tablet. Both devices must be on the same network, and Wi-Fi client isolation must be off.';
   }
+  // usbip-win2 refuses to work when more than one VHCI root device is
+  // registered, which happens if the driver was installed more than once.
+  if (/multiple instances of vhci|vhci device interface/i.test(text)) {
+    return 'Windows has more than one copy of the USB/IP driver installed, and the runtime ' +
+      'refuses to run until that is resolved. Uninstall every "USBip" entry in Apps & features, ' +
+      'remove any leftover USBIP devices in Device Manager (View \u2192 Show hidden devices), ' +
+      'reboot, then install the driver once.';
+  }
+  if (/no free port|no available port/i.test(text)) {
+    return 'Windows has no free USB/IP port left. Use Disconnect all, then try again.';
+  }
   if (/no such (device|file)|not found/i.test(text)) {
-    return 'That drive is no longer shared on the tablet. Tap Share with Windows again, then rescan.';
+    return 'The tablet no longer lists that drive. Tap Share with Windows on the tablet, then Find drives.';
   }
   if (/access is denied|administrator/i.test(text)) {
     return 'Windows denied access. Run Perspective USB Bridge as Administrator and try again.';
@@ -104,7 +115,7 @@ function renderDevice(device, target) {
         setStatus(`${device.name} disconnected safely.`);
       } else {
         setStatus(`Connecting ${device.name}… Windows may take a few seconds to mount it.`);
-        await window.bridge.attach(target, device.busId);
+        await window.bridge.attach(target, device.busId, device.vidPid);
         setStatus(`${device.name} connected. Open File Explorer to see the drive letter.`);
       }
       await refreshPorts();

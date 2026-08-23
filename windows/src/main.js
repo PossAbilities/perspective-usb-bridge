@@ -246,22 +246,48 @@ async function attachedPort(host, busId) {
   }
 }
 
-ipcMain.handle('usbip:attach', async (_event, host, busId) => {
+/**
+ * Faults in the local USB/IP driver installation. Retrying these wastes the
+ * user's time and tells them nothing new, so they are reported immediately.
+ */
+const LOCAL_DRIVER_FAULT = /multiple instances of vhci|vhci device interface|no free port|no available port/i;
+
+/**
+ * The tablet reissues a bus ID when a drive is unshared and shared again, so a
+ * list a few seconds old can name a bus ID that no longer exists. Re-resolve
+ * against a fresh listing, falling back to the same vendor:product pair.
+ */
+async function resolveBusId(host, busId, vidPid) {
+  try {
+    const devices = parseRemoteList(await runUsbip(['list', '-r', host]));
+    if (devices.some(device => device.busId === busId)) return busId;
+    const match = vidPid && devices.find(device => device.vidPid === vidPid);
+    if (match) return match.busId;
+  } catch { /* fall through and let attach report the real problem */ }
+  return busId;
+}
+
+ipcMain.handle('usbip:attach', async (_event, host, busId, vidPid) => {
   const existing = await attachedPort(host, busId);
   if (existing) return `Already connected on port ${existing.port}.`;
 
+  const target = await resolveBusId(host, busId, vidPid);
   try {
-    return await runUsbip(['attach', '-r', host, '-b', busId]);
+    return await runUsbip(['attach', '-r', host, '-b', target]);
   } catch (firstError) {
+    if (LOCAL_DRIVER_FAULT.test(firstError.message || '')) throw firstError;
+
     // Retry once. Only detach the port belonging to *this* bus id — tearing down
     // every attachment would disconnect the user's other drives.
-    const stale = await attachedPort(host, busId);
+    const stale = await attachedPort(host, target);
     if (stale) {
       try { await runUsbip(['detach', '-p', String(stale.port)]); } catch { /* best effort */ }
     }
     await new Promise(resolve => setTimeout(resolve, 1200));
     try {
-      return await runUsbip(['attach', '-r', host, '-b', busId]);
+      // Re-resolve again: the drive may have been re-shared during the pause.
+      const retryTarget = await resolveBusId(host, target, vidPid);
+      return await runUsbip(['attach', '-r', host, '-b', retryTarget]);
     } catch (secondError) {
       throw new Error(`Connect failed after one automatic retry. ${secondError.message || firstError.message}`);
     }
