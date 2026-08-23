@@ -1,8 +1,14 @@
 name: Release Perspective USB Bridge
 on:
+  # Tag pushed from a clone.
   push:
     tags:
       - 'v*'
+  # Release created through the GitHub web UI, which does not reliably raise a
+  # tag push event. GITHUB_REF_NAME is still the tag name here, so artifacts are
+  # named identically either way.
+  release:
+    types: [published]
 permissions:
   contents: write
 jobs:
