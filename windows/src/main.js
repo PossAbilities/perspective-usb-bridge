@@ -1,10 +1,10 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const os = require('os');
 const dgram = require('dgram');
-const { execFile, spawn } = require('child_process');
+const { execFile, execFileSync, spawn } = require('child_process');
 const fs = require('fs');
 const { parseRemoteList, parseAttachedPorts } = require('./parseRemoteList');
 
@@ -19,12 +19,34 @@ let mainWindow = null;
 let discoverySocket = null;
 let probeTimer = null;
 
+/**
+ * usbip.exe as recorded on PATH by the upstream installer. Guessing at fixed
+ * directories misses an install made to a custom location, and a missed install
+ * is worse than cosmetic: the app offers to install the driver again, and a
+ * second copy leaves two VHCI root devices, which makes the runtime refuse to
+ * run at all with "Multiple instances of VHCI device interface found".
+ */
+function usbipOnPath() {
+  try {
+    const found = execFileSync('where', ['usbip.exe'], {
+      windowsHide: true,
+      encoding: 'utf8',
+      timeout: 5000
+    });
+    return found.split(/\r?\n/).map(line => line.trim()).find(line => line && fs.existsSync(line)) || '';
+  } catch {
+    return ''; // `where` exits non-zero when nothing matches
+  }
+}
+
 function usbipCandidates() {
   return [
     process.env.PERSPECTIVE_USBIP_EXE,
+    usbipOnPath(),
     'C:\\Program Files\\USBip\\usbip.exe',
     'C:\\Program Files\\usbip-win2\\usbip.exe',
     'C:\\Program Files (x86)\\USBip\\usbip.exe',
+    'C:\\Program Files (x86)\\usbip-win2\\usbip.exe',
     path.join(process.resourcesPath || '', 'usbip', 'usbip.exe')
   ].filter(Boolean);
 }
@@ -200,6 +222,16 @@ ipcMain.handle('usbip:runtime-status', async () => runtimeStatus());
 ipcMain.handle('usbip:probe', async () => { sendProbe(); return true; });
 
 ipcMain.handle('usbip:install-runtime', async () => {
+  // Never install over an existing copy. Two installs leave two VHCI root
+  // devices and the runtime then refuses to start.
+  const current = runtimeStatus();
+  if (current.installed) {
+    throw new Error(
+      `A USB/IP runtime is already installed at ${current.path}. Installing a second copy would ` +
+      'stop it working. Uninstall the existing one first if you need to replace it.'
+    );
+  }
+
   const installer = bundledRuntimeInstaller();
   if (!installer) throw new Error('The signed USB/IP runtime was not bundled with this build.');
 
@@ -246,22 +278,48 @@ async function attachedPort(host, busId) {
   }
 }
 
-ipcMain.handle('usbip:attach', async (_event, host, busId) => {
+/**
+ * Faults in the local USB/IP driver installation. Retrying these wastes the
+ * user's time and tells them nothing new, so they are reported immediately.
+ */
+const LOCAL_DRIVER_FAULT = /multiple instances of vhci|vhci device interface|no free port|no available port/i;
+
+/**
+ * The tablet reissues a bus ID when a drive is unshared and shared again, so a
+ * list a few seconds old can name a bus ID that no longer exists. Re-resolve
+ * against a fresh listing, falling back to the same vendor:product pair.
+ */
+async function resolveBusId(host, busId, vidPid) {
+  try {
+    const devices = parseRemoteList(await runUsbip(['list', '-r', host]));
+    if (devices.some(device => device.busId === busId)) return busId;
+    const match = vidPid && devices.find(device => device.vidPid === vidPid);
+    if (match) return match.busId;
+  } catch { /* fall through and let attach report the real problem */ }
+  return busId;
+}
+
+ipcMain.handle('usbip:attach', async (_event, host, busId, vidPid) => {
   const existing = await attachedPort(host, busId);
   if (existing) return `Already connected on port ${existing.port}.`;
 
+  const target = await resolveBusId(host, busId, vidPid);
   try {
-    return await runUsbip(['attach', '-r', host, '-b', busId]);
+    return await runUsbip(['attach', '-r', host, '-b', target]);
   } catch (firstError) {
+    if (LOCAL_DRIVER_FAULT.test(firstError.message || '')) throw firstError;
+
     // Retry once. Only detach the port belonging to *this* bus id — tearing down
     // every attachment would disconnect the user's other drives.
-    const stale = await attachedPort(host, busId);
+    const stale = await attachedPort(host, target);
     if (stale) {
       try { await runUsbip(['detach', '-p', String(stale.port)]); } catch { /* best effort */ }
     }
     await new Promise(resolve => setTimeout(resolve, 1200));
     try {
-      return await runUsbip(['attach', '-r', host, '-b', busId]);
+      // Re-resolve again: the drive may have been re-shared during the pause.
+      const retryTarget = await resolveBusId(host, target, vidPid);
+      return await runUsbip(['attach', '-r', host, '-b', retryTarget]);
     } catch (secondError) {
       throw new Error(`Connect failed after one automatic retry. ${secondError.message || firstError.message}`);
     }
@@ -284,8 +342,6 @@ ipcMain.handle('usbip:detach-all', async () => {
   if (failures.length) throw new Error(failures.join('; '));
   return `Disconnected ${ports.length} device${ports.length === 1 ? '' : 's'}.`;
 });
-
-ipcMain.handle('shell:open-explorer', async () => { await shell.openPath('C:\\'); return true; });
 
 // -------------------------------------------------------------------- lifecycle
 

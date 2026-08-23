@@ -84,8 +84,46 @@ A tag such as `v0.7.0` triggers the combined release workflow. It refuses to pub
 | Windows never finds the tablet | Broadcast blocked, or firewall | Type the IP shown in the Android app; check both devices are on the same Wi-Fi with client isolation off |
 | "Tablet found, but no USB drives are currently shared" | Nothing shared yet | Tap **Share with Windows** on the tablet |
 | "The USB interfaces could not be claimed" | Android has the drive mounted | Eject the drive in Android's Files app, then share it again |
+| "Multiple instances of VHCI device interface found" | The USB/IP driver is installed more than once | Uninstall every "USBip" entry in Apps & features, remove leftover USBIP devices in Device Manager (View → Show hidden devices), reboot, install once. See below. |
 | Connects, but no drive letter appears | The volume is offline or unformatted | Check Windows Disk Management |
 | Transfers stall when the tablet screen sleeps | Wi-Fi power saving | The service holds a wake lock and a high-performance Wi-Fi lock; also disable battery optimisation for the app |
+
+### One-command connect
+
+`tools/windows/Connect-PerspectiveDrive.ps1` does the whole Windows side in one
+go: checks for duplicate driver installs, installs the bundled runtime if it is
+missing, finds the tablet, lists and attaches the shared drive, then brings the
+disk online and gives it a drive letter. Right-click it and choose **Run with
+PowerShell**, or:
+
+```
+powershell -ExecutionPolicy Bypass -File .\tools\windows\Connect-PerspectiveDrive.ps1
+```
+
+It elevates itself if needed, and takes `-TabletIp`, `-BusId`, `-NoMount` and
+`-SkipInstall`. It never initialises, formats or partitions anything, so it
+cannot destroy data on the drive.
+
+### Removing a duplicate USB/IP driver
+
+`usbip-win2` refuses to run when more than one VHCI root device is registered,
+which happens if the driver is installed twice — for example once by hand and
+once through the app's **Install USB driver** button. In an Administrator
+Command Prompt:
+
+```
+pnputil /enum-devices /ids | findstr /i usbip
+```
+
+Every match prints an instance ID. Remove them all, then reboot and install the
+driver once:
+
+```
+pnputil /remove-device "<instance ID>"
+```
+
+Also uninstall any "USBip" entries under Apps & features first, so nothing
+reinstalls them on the next boot.
 
 ## Status
 
