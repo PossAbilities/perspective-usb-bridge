@@ -89,19 +89,47 @@ a blanket `-EIO`, so Windows treats unsupported requests as stalls and continues
 - Windows tests cover `usbip list -r` and `usbip port` parsing.
 - All three run in CI before either artifact is built.
 
-## Acceptance tests still required on real hardware
-1. SSK 2 TB SSD attaches three consecutive times without manual Device Manager work.
-2. Windows reads the same data volume/files Android sees.
-3. Samsung + USB hub enumerates multiple downstream drives.
-4. Drive A and Drive B can be shared independently.
-5. Removing Drive A leaves Drive B online.
-6. Windows can attach two exported storage devices concurrently.
-7. Powered hub test with multiple high-draw SSD/HDD devices.
-8. Sustained large-file copy in both directions with the tablet screen off.
+## First successful end-to-end run
+
+23 August 2026, on the target hardware: Samsung tablet, SSK USB3.2 SSD
+(VIA Labs VL817 SATA bridge, 2109:0715), Windows 11 26200.
+
+The drive mounted and its files were readable in Windows Explorer. The full
+chain works: Android USB host, USB/IP over Wi-Fi on TCP 3240, usbip-win2 VHCI,
+mounted NTFS volume.
+
+Two things had to be true that the code could not fix by itself:
+
+- **Exactly one USB/IP driver install.** usbip-win2 refuses to run when more
+  than one VHCI root device is registered, failing with "Multiple instances of
+  VHCI device interface found". The machine needed every USBip install removed
+  and one clean reinstall. The app now detects an existing runtime via PATH and
+  the registry and refuses to install a second copy.
+- **The Android app open on screen.** The tablet only advertises itself, and
+  only runs the USB/IP host, while the app is in the foreground.
+
+Discovery, listing, attach and mount all succeeded through
+`tools/windows/Connect-PerspectiveDrive.ps1`.
+
+## Acceptance tests
+
+| # | Test | Status |
+| --- | --- | --- |
+| 1 | SSK 2 TB SSD attaches three consecutive times without manual Device Manager work | One attach confirmed; repeat runs still to do |
+| 2 | Windows reads the same data volume/files Android sees | **Confirmed** |
+| 3 | Samsung + USB hub enumerates multiple downstream drives | Not tested |
+| 4 | Drive A and Drive B can be shared independently | Not tested |
+| 5 | Removing Drive A leaves Drive B online | Not tested |
+| 6 | Windows can attach two exported storage devices concurrently | Not tested |
+| 7 | Powered hub test with multiple high-draw SSD/HDD devices | Not tested |
+| 8 | Sustained large-file copy both directions with the tablet screen off | Not tested |
+
+Write performance and large-file integrity are the most important untested
+areas: the run above proves reads work, not that sustained writes are safe.
 
 ## Important status
-The source is build-ready for GitHub Actions, but this workspace cannot download
-the Android SDK, so no APK has been compiled here. The protocol core is compiled
-and exercised by the harness; `MainActivity` and `UsbBridgeService` are checked
-by review only and first compile on a GitHub runner. The Android artifact remains
-a TEST build until production signing is configured.
+The bridge is proven end to end on real hardware for reading. It is still a
+prototype: the Android artifact is a debug-signed TEST build until production
+signing is configured, and the multi-drive, hub and sustained-write cases in the
+table above have not been exercised. Do not trust it with the only copy of
+anything until at least test 8 passes.
