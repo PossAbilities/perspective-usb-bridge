@@ -78,14 +78,26 @@ Distributing one needs an EV code-signing certificate, a Microsoft Partner
 Center account and attestation signing. That is the largest single cost in this
 work, and it is why the phases below put it last.
 
-Interim options, in order of preference:
+### The remote desktop tool does not cover it
 
-1. **Check remote desktop first.** If the tablet reaches Windows over RDP,
-   microphone redirection is already in the protocol and the Android client.
-   The mic may cost nothing.
-2. Depend on an installed virtual audio cable and have the user select it in the
+Worth ruling out before building, since a remote desktop tool that already
+redirects the microphone would delete this whole item. Checked, and it does not.
+
+This setup reaches Windows through **Parsec from the Android tablet**. Parsec
+does have microphone passthrough, but its documentation is explicit that it
+works from a **Windows or macOS client only**, and it additionally requires
+Parsec's own virtual USB driver on the host. An Android client cannot use it.
+
+Parsec's approach is worth noting all the same: it solves the problem by
+installing a virtual USB device on the host, which is the same shape as the
+architecture above. That is evidence the design is sound, not a shortcut we can
+take.
+
+Remaining options, in order of preference:
+
+1. Depend on an installed virtual audio cable and have the user select it in the
    conferencing app. Works today; redistribution licensing needs checking.
-3. Ship our own driver.
+2. Ship our own signed driver.
 
 ## Wire protocol
 
@@ -134,10 +146,13 @@ synchronise them.
    serve. Verifiable without Windows.
 2. **Windows helper.** Connect, decode, measure real latency on the target
    network. Decides whether the budget is achievable before any COM work.
+   Decoding uses WebCodecs `VideoDecoder` inside the existing Electron client,
+   which is hardware accelerated and needs no native code, so the latency
+   question gets answered without writing a line of C++.
 3. **Virtual camera.** COM media source DLL, shared-memory transport,
    `MFCreateVirtualCamera` registration. Camera usable in Teams at this point.
-4. **Microphone.** Only after step 1's RDP check settles whether a driver is
-   needed at all.
+4. **Microphone.** The driver is unavoidable: see above. Sequenced last so the
+   camera is usable long before the certificate and signing work completes.
 
 Each phase is useful on its own, and phase 3 is the first that a conferencing
 app can consume.
