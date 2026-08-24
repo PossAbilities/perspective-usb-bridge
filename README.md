@@ -39,6 +39,35 @@ If discovery still fails — for example on a guest network with client isolatio
 
 The Windows client uses the open-source `usbip-win2` runtime. Release builds fetch the current upstream x64 installer, bundle its licence, and record the exact upstream release, asset and SHA-256 hash. The Perspective app asks for Administrator permission before installing the driver/runtime.
 
+## Verifying writes
+
+Reads are proven on real hardware; sustained writes are not, and the bulk
+transfer chunking in the USB/IP server is exactly the code a large write
+exercises hardest. Silent corruption there would be worse than an outright
+failure, because it looks like success.
+
+`tools/windows/Test-DriveIntegrity.ps1` settles it. It writes files of random
+data to the bridged drive, hashing each as it goes, remounts to defeat the
+Windows cache, then reads every file back and compares:
+
+```
+powershell -ExecutionPolicy Bypass -File .\tools\windows\Test-DriveIntegrity.ps1 -Drive E
+```
+
+Defaults to 4 GB; `-TotalGB 16` for a longer soak, `-Keep` to leave the files in
+place. It only ever touches a folder it creates itself and removes it afterwards;
+it never formats or partitions anything.
+
+Run it with the tablet screen off to cover acceptance test 8.
+
+## Camera bridge
+
+Work in progress. See `docs/CAMERA-BRIDGE.md`. The Windows client has a **Camera
+bridge (preview)** button that connects to the tablet, decodes the H.264 stream
+with WebCodecs and reports frame rate, bitrate, decode time, arrival jitter and
+drift. Drift is the number that matters: a steadily rising figure means latency
+is accumulating.
+
 ## Branding
 
 Both apps use the Perspective Studio mark in `branding/ps-mark-primary.svg`.
