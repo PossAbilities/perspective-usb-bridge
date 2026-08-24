@@ -1,0 +1,35 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'">
+<title>Perspective Camera Bridge</title><link rel="stylesheet" href="styles.css"></head>
+<body>
+  <main class="shell">
+    <header class="brand"><img src="assets/ps-mark-primary.svg" alt=""><div><div class="eyebrow">PERSPECTIVE STUDIO</div><h1>Camera Bridge.</h1><p>Phase 2 — latency measurement</p></div></header>
+
+    <section class="card">
+      <label for="mediaHost">Samsung tablet</label>
+      <div class="row">
+        <input id="mediaHost" placeholder="192.168.1.92" spellcheck="false">
+        <button id="mediaConnect">Connect</button>
+      </div>
+      <p class="hint" id="mediaHint">Open Perspective USB Bridge on the tablet and start the camera bridge first.</p>
+    </section>
+
+    <section id="mediaStatus" class="status">Not connected.</section>
+
+    <section class="card">
+      <canvas id="preview" width="1280" height="720" style="width:100%;height:auto;background:#0d0a26;border-radius:12px"></canvas>
+    </section>
+
+    <section class="card diagnostics">
+      <label>Measurements</label>
+      <pre id="stats">Waiting for frames…</pre>
+      <p class="hint">Drift is what matters: a steadily rising figure means latency is
+      accumulating. For true glass-to-glass, point the tablet at this screen showing a
+      running stopwatch and photograph both.</p>
+    </section>
+
+    <button id="mediaDisconnect" class="secondary">Disconnect</button>
+    <footer>Perspective USB Bridge · camera bridge preview</footer>
+  </main>
+<script src="mediaRenderer.js"></script></body></html>

@@ -188,6 +188,7 @@ $('#detach').addEventListener('click', async () => {
   }
 });
 host.addEventListener('keydown', e => { if (e.key === 'Enter') scan(false); });
+$('#openCamera').addEventListener('click', () => window.bridge.openCamera());
 
 window.bridge.onDiscovered(info => {
   const previous = lastDiscovery;

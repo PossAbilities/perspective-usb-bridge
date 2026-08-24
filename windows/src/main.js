@@ -7,6 +7,8 @@ const dgram = require('dgram');
 const { execFile, execFileSync, spawn } = require('child_process');
 const fs = require('fs');
 const { parseRemoteList, parseAttachedPorts } = require('./parseRemoteList');
+const net = require('net');
+const mediaClient = require('./mediaClient');
 
 const DISCOVERY_PORT = 32401;
 const DISCOVERY_MAGIC_V2 = 'PERSPECTIVE_USB_BRIDGE_V2';
@@ -215,6 +217,116 @@ function createWindow() {
   mainWindow.on('closed', () => { mainWindow = null; });
 }
 
+// ---------------------------------------------------------------- camera bridge
+
+let mediaWindow = null;
+let mediaSocket = null;
+
+function closeMediaSocket() {
+  if (!mediaSocket) return;
+  const socket = mediaSocket;
+  mediaSocket = null;
+  socket.removeAllListeners();
+  try { socket.destroy(); } catch { /* already gone */ }
+}
+
+function sendToMediaWindow(channel, payload) {
+  if (mediaWindow && !mediaWindow.isDestroyed()) {
+    mediaWindow.webContents.send(channel, payload);
+  }
+}
+
+function openMediaWindow() {
+  if (mediaWindow && !mediaWindow.isDestroyed()) {
+    mediaWindow.focus();
+    return;
+  }
+  mediaWindow = new BrowserWindow({
+    width: 980,
+    height: 720,
+    backgroundColor: '#1A1546',
+    title: 'Perspective Camera Bridge',
+    icon: path.join(__dirname, 'assets', 'icon-256.png'),
+    webPreferences: {
+      preload: path.join(__dirname, 'mediaPreload.js'),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  });
+  mediaWindow.setMenuBarVisibility(false);
+  mediaWindow.loadFile(path.join(__dirname, 'media.html'));
+  mediaWindow.on('closed', () => {
+    mediaWindow = null;
+    closeMediaSocket();
+  });
+}
+
+ipcMain.handle('media:open', async () => { openMediaWindow(); return true; });
+
+ipcMain.handle('media:connect', async (_event, host, options) => {
+  if (!host) throw new Error('No tablet address.');
+  closeMediaSocket();
+
+  return new Promise((resolve, reject) => {
+    const parser = new mediaClient.MediaStreamParser();
+    const socket = net.createConnection({ host, port: mediaClient.PORT }, () => {
+      socket.setNoDelay(true);
+      socket.write(mediaClient.buildRequest(options || {}));
+      resolve({ connected: true, host, port: mediaClient.PORT });
+    });
+    mediaSocket = socket;
+
+    // The tablet is asked to start a camera, which can take a moment on cold
+    // start; fail fast only on the connect itself.
+    socket.setTimeout(8000, () => {
+      if (!parser.accepted) {
+        socket.destroy(new Error('The tablet did not start the camera in time.'));
+      } else {
+        socket.setTimeout(0);
+      }
+    });
+
+    socket.on('data', chunk => {
+      let events;
+      try {
+        events = parser.push(chunk);
+      } catch (error) {
+        sendToMediaWindow('media:error', error.message);
+        closeMediaSocket();
+        return;
+      }
+      for (const event of events) {
+        if (event.kind === 'accepted') {
+          socket.setTimeout(0);
+          sendToMediaWindow('media:accepted', event);
+        } else {
+          // receivedAt lets the renderer measure arrival jitter and drift
+          // against the tablet's own timestamps.
+          sendToMediaWindow('media:frame', {
+            type: event.type,
+            keyframe: event.keyframe,
+            timestampUs: event.timestampUs,
+            receivedAt: Date.now(),
+            payload: event.payload
+          });
+        }
+      }
+    });
+
+    socket.on('error', error => {
+      sendToMediaWindow('media:error', error.message);
+      if (mediaSocket === socket) mediaSocket = null;
+      reject(error);
+    });
+    socket.on('close', () => {
+      sendToMediaWindow('media:closed', null);
+      if (mediaSocket === socket) mediaSocket = null;
+    });
+  });
+});
+
+ipcMain.handle('media:disconnect', async () => { closeMediaSocket(); return true; });
+
 // --------------------------------------------------------------------------- ipc
 
 ipcMain.handle('usbip:runtime-status', async () => runtimeStatus());
@@ -359,6 +471,7 @@ if (!singleInstance) {
 }
 
 app.on('before-quit', () => {
+  closeMediaSocket();
   if (probeTimer) clearInterval(probeTimer);
   probeTimer = null;
   try { discoverySocket?.close(); } catch { /* already closed */ }

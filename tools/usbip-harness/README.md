@@ -1,7 +1,8 @@
-# USB/IP protocol harness
+# Protocol harness
 
-Runs the Android app's real USB/IP server on a plain JVM, against a simulated
-USB mass-storage device, and asserts the exact bytes it puts on the wire.
+Runs the Android app's real protocol code on a plain JVM and asserts the exact
+bytes it puts on the wire — both the USB/IP storage bridge, against a simulated
+mass-storage device, and the camera/microphone bridge.
 
 ```
 cd tools/usbip-harness
@@ -13,7 +14,7 @@ contains just enough of `android.hardware.usb` to compile; everything under
 `uk.co.perspectivestudio.usbbridge` is compiled straight from
 `android/app/src/main/java`, so the harness cannot drift from the shipping code.
 
-What it pins down:
+## USB/IP storage bridge
 
 - `OP_REP_DEVLIST` field-by-field, including that the stream ends exactly where
   the client expects it to. A single byte of drift here makes `usbip list -r`
@@ -31,3 +32,16 @@ What it pins down:
 - A slow bulk read does not block control traffic on the same device.
 - `USBIP_CMD_UNLINK` reports `-ECONNRESET` for an in-flight URB and `0` for one
   that already finished, and no late `RET_SUBMIT` follows an unlinked URB.
+
+## Camera and microphone bridge
+
+The Windows decoder will be a separate implementation, so the byte layout is the
+contract between them. These checks pin down field offsets and endianness rather
+than merely round-tripping, then stream four seconds of realistically sized
+frames over a socket:
+
+- The handshake and frame headers are exactly 16 and 20 bytes, with every field
+  at its documented offset and big-endian throughout.
+- Keyframe flags, 90 KB keyframe payloads and 20 ms PCM chunks survive intact.
+- Audio and video timestamps share one timeline, which is what lets the Windows
+  side synchronise them.

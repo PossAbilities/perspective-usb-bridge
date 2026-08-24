@@ -17,6 +17,12 @@ application { mainClass.set("HarnessKt") }
  */
 val bridgeSources = kotlin.sourceSets["main"].kotlin
 bridgeSources.srcDir(layout.projectDirectory.dir("../../android/app/src/main/java"))
-bridgeSources.filter.exclude("**/MainActivity.kt", "**/UsbBridgeService.kt")
+bridgeSources.filter.exclude(
+    // Need the full Android framework: covered by the normal Android build.
+    "**/MainActivity.kt",
+    "**/UsbBridgeService.kt",
+    "**/MediaCapture.kt",
+    "**/MediaBridgeService.kt"
+)
 
 tasks.named("run") { description = "Runs the USB/IP protocol conformance harness." }
