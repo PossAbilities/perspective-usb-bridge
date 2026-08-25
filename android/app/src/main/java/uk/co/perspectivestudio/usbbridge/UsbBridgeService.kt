@@ -96,7 +96,11 @@ class UsbBridgeService : Service() {
                 if (shared.isEmpty()) { shutdownHost(); return START_NOT_STICKY }
             }
             ACTION_STOP -> removeDevice(intent.getIntExtra(EXTRA_DEVICE_ID, -1), "Stopped sharing")
-            ACTION_STOP_ALL -> stopAll("Stopped all sharing")
+            ACTION_STOP_ALL -> {
+                hostRequested = false
+                stopAll("Stopped all sharing")
+                if (shared.isEmpty()) { shutdownHost(); return START_NOT_STICKY }
+            }
             else -> {
                 // Restarted by the system: nothing is shared any more, so stand down.
                 if (shared.isEmpty() && !hostRequested) { shutdownHost(); return START_NOT_STICKY }
@@ -320,11 +324,22 @@ class UsbBridgeService : Service() {
             Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
+        // Leaving the app no longer stops the bridge, so the notification has to
+        // carry the way to stop it.
+        val stop = PendingIntent.getService(
+            this,
+            1,
+            Intent(this, UsbBridgeService::class.java).setAction(ACTION_STOP_ALL),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
         return Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle("Perspective USB Bridge")
             .setContentText(text)
             .setContentIntent(open)
+            .addAction(
+                Notification.Action.Builder(null, "Stop sharing", stop).build()
+            )
             .setOngoing(true)
             .build()
     }

@@ -162,7 +162,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
-        if (sharedIds.value.isEmpty()) sendToService(UsbBridgeService.ACTION_RELEASE_HOST)
+        // Deliberately does NOT stop the host. Reaching Windows from the tablet
+        // means switching to a remote desktop app, which backgrounds this one;
+        // tearing the bridge down on the way out made it impossible to use the
+        // drive from anywhere except this screen. The host is a foreground
+        // service with its own notification, so it stays visible and stoppable.
     }
 
     override fun onDestroy() {

@@ -39,6 +39,27 @@ If discovery still fails — for example on a guest network with client isolatio
 
 The Windows client uses the open-source `usbip-win2` runtime. Release builds fetch the current upstream x64 installer, bundle its licence, and record the exact upstream release, asset and SHA-256 hash. The Perspective app asks for Administrator permission before installing the driver/runtime.
 
+## Using it remotely
+
+The bridge is built for a shared local network. Discovery is a UDP broadcast,
+which never leaves the LAN, and Windows opens the TCP connection *to* the
+tablet, so a tablet on mobile data behind carrier NAT has no reachable address.
+
+An overlay network fixes both. Install [Tailscale](https://tailscale.com) on the
+tablet and the PC, sign both into the same account, then type the tablet's
+`100.x.x.x` address into the Windows client instead of relying on discovery.
+Tailscale traverses carrier NAT, which a plain IP cannot.
+
+Two things to know before relying on it:
+
+- **Share the drive before switching apps.** Reaching Windows from the tablet
+  means opening a remote desktop app, which backgrounds this one. The bridge
+  keeps running once started, but start it first.
+- **Expect it to be slow.** USB/IP sends every SCSI command as its own round
+  trip: under a millisecond on a LAN, 20-50 ms over the internet, and opening a
+  project file is hundreds of them. Copying files across is realistic; editing
+  directly off the drive over the internet generally is not.
+
 ## Verifying writes
 
 Reads are proven on real hardware; sustained writes are not, and the bulk
@@ -111,6 +132,7 @@ A tag such as `v0.7.0` triggers the combined release workflow. It refuses to pub
 | Symptom | Cause | Fix |
 | --- | --- | --- |
 | Windows never finds the tablet | Broadcast blocked, or firewall | Type the IP shown in the Android app; check both devices are on the same Wi-Fi with client isolation off |
+| Nothing works when the tablet is away from home | Discovery is a LAN broadcast, and Windows dials out to the tablet, which is unreachable behind carrier NAT | See "Using it remotely" below |
 | "Tablet found, but no USB drives are currently shared" | Nothing shared yet | Tap **Share with Windows** on the tablet |
 | "The USB interfaces could not be claimed" | Android has the drive mounted | Eject the drive in Android's Files app, then share it again |
 | "Multiple instances of VHCI device interface found" | The USB/IP driver is installed more than once | Uninstall every "USBip" entry in Apps & features, remove leftover USBIP devices in Device Manager (View → Show hidden devices), reboot, install once. See below. |
