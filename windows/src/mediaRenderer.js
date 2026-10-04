@@ -37,10 +37,21 @@ const stats = {
   drift: 0
 };
 
-function setStatus(text, error = false) {
+/**
+ * state: 'idle' | 'busy' | 'ok' | 'live' | 'error', or a boolean for the
+ * older error/not-error call sites.
+ */
+function setStatus(text, state = 'ok') {
+  if (state === true) state = 'error';
+  if (state === false) state = 'ok';
   const el = $('#mediaStatus');
   el.textContent = text;
-  el.style.color = error ? '#F4592B' : '#CFE96A';
+  el.title = text;
+  el.dataset.state = state;
+}
+
+function showPicture(on) {
+  $('#stage').classList.toggle('empty', !on);
 }
 
 // ------------------------------------------------------------------ decoding
@@ -93,19 +104,23 @@ async function startDecoder(config) {
       }
       context.drawImage(frame, 0, 0);
       frame.close();
+      if (stats.decoded === 1) {
+        showPicture(true);
+        setStatus(`Live · ${canvas.width}×${canvas.height}`, 'live');
+      }
     },
-    error: e => setStatus(`Decoder error: ${e.message}`, true)
+    error: e => setStatus(`Picture error: ${e.message}`, true)
   });
 
   const codec = codecStringFromConfig(config);
   const settings = { codec, optimizeForLatency: true };
   const support = await VideoDecoder.isConfigSupported(settings).catch(() => null);
   if (!support || !support.supported) {
-    setStatus(`This PC cannot decode ${codec}.`, true);
+    setStatus(`This computer cannot decode the tablet's video (${codec}).`, true);
     return;
   }
   decoder.configure(settings);
-  setStatus(`Decoding ${codec}.`);
+  setStatus('Starting picture…', 'busy');
 }
 
 const pending = new Map();
@@ -131,7 +146,7 @@ function decodeVideo(frame) {
       data
     }));
   } catch (error) {
-    setStatus(`Decode failed: ${error.message}`, true);
+    setStatus(`Picture error: ${error.message}`, true);
     waitingForKeyframe = true;
   }
 }
@@ -275,22 +290,27 @@ function render() {
     ? Math.sqrt(mean(gaps.map(g => (g - mean(gaps)) ** 2)))
     : 0;
 
-  $('#stats').textContent = [
-    `frames received   ${stats.frames}`,
-    `frames decoded    ${stats.decoded}${stats.dropped ? `  (${stats.dropped} dropped before first keyframe)` : ''}`,
-    `receive rate      ${seconds > 0 ? (stats.frames / seconds).toFixed(1) : '0.0'} fps`,
-    `bitrate           ${seconds > 0 ? ((stats.bytes * 8) / seconds / 1e6).toFixed(2) : '0.00'} Mbps`,
-    `decode time       ${mean(stats.decodeTimes).toFixed(1)} ms average`,
-    `arrival gap       ${mean(gaps).toFixed(1)} ms average, jitter ${jitter.toFixed(1)} ms`,
-    `drift since start ${stats.drift.toFixed(0)} ms   <- should stay near zero`
-  ].join('\n');
+  const set = (id, text, alert = false) => {
+    const el = $(id);
+    el.textContent = text;
+    el.classList.toggle('alert', alert);
+  };
+  const live = stats.frames > 0;
+  set('#mSize', live ? `${canvas.width}×${canvas.height}` : '—');
+  set('#mFps', live && seconds > 0 ? `${(stats.frames / seconds).toFixed(1)} fps` : '—');
+  set('#mRate', live && seconds > 0 ? `${((stats.bytes * 8) / seconds / 1e6).toFixed(2)} Mbps` : '—');
+  set('#mDecode', stats.decodeTimes.length ? `${mean(stats.decodeTimes).toFixed(1)} ms` : '—');
+  set('#mJitter', gaps.length > 1 ? `${jitter.toFixed(1)} ms` : '—');
+  set('#mDrift', live ? `${stats.drift >= 0 ? '+' : ''}${stats.drift.toFixed(0)} ms` : '—', Math.abs(stats.drift) > 250);
+  set('#mDropped', live ? String(stats.dropped) : '—');
 }
+
 setInterval(render, 500);
 
 // ------------------------------------------------------------------- wiring
 
 window.media.onAccepted(info => {
-  setStatus(`Tablet accepted ${info.width}x${info.height} at ${info.frameRate} fps.`);
+  setStatus(`Connected · ${info.width}×${info.height} at ${info.frameRate} fps`, 'busy');
   canvas.width = info.width;
   canvas.height = info.height;
   Object.assign(stats, {
@@ -336,50 +356,86 @@ function scheduleReconnect() {
   reconnectTimer = setTimeout(() => { reconnectTimer = null; connect(); }, 3000);
 }
 
-window.media.onError(message => { setStatus(message, true); scheduleReconnect(); });
+/** Socket errors are terse; say what the person can do about them. */
+function explain(message) {
+  const text = String(message || '');
+  if (/ECONNREFUSED/i.test(text)) return 'Tablet not sharing. Tap Share camera & microphone on it.';
+  if (/ETIMEDOUT|EHOSTUNREACH|ENETUNREACH|in time/i.test(text)) return 'No reply from the tablet. Same Wi-Fi?';
+  if (/ENOTFOUND|EINVAL/i.test(text)) return 'That address does not look right.';
+  return text;
+}
+
+function updateConnectButton() {
+  const button = $('#mediaConnect');
+  button.textContent = wantConnected ? 'Disconnect' : 'Connect';
+  button.classList.toggle('secondary', wantConnected);
+}
+
+window.media.onError(message => {
+  setStatus(wantConnected ? `${explain(message)} Retrying…` : explain(message), 'error');
+  scheduleReconnect();
+});
 window.media.onClosed(() => {
-  setStatus(wantConnected ? 'Tablet disconnected. Reconnecting…' : 'Tablet disconnected.', wantConnected);
+  showPicture(false);
+  $('#placeholderTitle').textContent = wantConnected ? 'Reconnecting to your tablet…' : 'Waiting for your tablet';
+  setStatus(wantConnected ? 'Reconnecting…' : 'Disconnected', wantConnected ? 'busy' : 'idle');
   scheduleReconnect();
 });
 window.media.onDiscovered(host => {
   const input = $('#mediaHost');
   if (!input.value.trim()) input.value = host;
+  $('#mediaHint').textContent = `Tablet found on your Wi-Fi at ${host}.`;
 });
+
+const selectedSize = () => document.querySelector('input[name="size"]:checked').value;
 
 async function connect() {
   const host = $('#mediaHost').value.trim();
-  if (!host) return setStatus('Enter the tablet address shown in the Android app.', true);
+  if (!host) {
+    wantConnected = false;
+    updateConnectButton();
+    $('#mediaHost').focus();
+    return setStatus('Enter the address shown on the tablet', 'error');
+  }
   writeSetting('mediaHost', host);
-  const [width, height] = $('#mediaSize').value.split('x').map(Number);
-  writeSetting('mediaSize', $('#mediaSize').value);
+  const [width, height] = selectedSize().split('x').map(Number);
+  writeSetting('mediaSize', selectedSize());
   writeSetting('mediaFront', $('#mediaFront').checked ? '1' : '0');
   $('#mediaConnect').disabled = true;
-  setStatus('Connecting…');
+  setStatus('Connecting…', 'busy');
   try {
     await window.media.connect(host, {
       width, height, frameRate: 30, audio: true, frontCamera: $('#mediaFront').checked
     });
   } catch (error) {
-    setStatus(error.message, true);
+    setStatus(wantConnected ? `${explain(error.message)} Retrying…` : explain(error.message), 'error');
     scheduleReconnect();
   } finally {
     $('#mediaConnect').disabled = false;
   }
 }
 
+async function disconnect() {
+  wantConnected = false;
+  updateConnectButton();
+  clearTimeout(reconnectTimer);
+  reconnectTimer = null;
+  await window.media.disconnect();
+  showPicture(false);
+  $('#placeholderTitle').textContent = 'Waiting for your tablet';
+  setStatus('Not connected', 'idle');
+}
+
 $('#mediaConnect').addEventListener('click', () => {
+  if (wantConnected) return disconnect();
   wantConnected = true;
+  updateConnectButton();
   clearTimeout(reconnectTimer);
   reconnectTimer = null;
   connect();
 });
-
-$('#mediaDisconnect').addEventListener('click', async () => {
-  wantConnected = false;
-  clearTimeout(reconnectTimer);
-  reconnectTimer = null;
-  await window.media.disconnect();
-  setStatus('Disconnected.');
+$('#mediaHost').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !wantConnected) $('#mediaConnect').click();
 });
 
 $('#audioSink').addEventListener('change', applySink);
@@ -395,6 +451,9 @@ $('#preview').addEventListener('dblclick', () => setCleanView(!document.body.cla
 document.addEventListener('keydown', e => { if (e.key === 'Escape') setCleanView(false); });
 
 $('#mediaHost').value = readSetting('mediaHost') || '';
-if (readSetting('mediaSize')) $('#mediaSize').value = readSetting('mediaSize');
-if (readSetting('mediaFront') !== null) $('#mediaFront').checked = readSetting('mediaFront') === '1';
+{
+  const size = document.querySelector(`input[name="size"][value="${readSetting('mediaSize')}"]`);
+  if (size) size.checked = true;
+  if (readSetting('mediaFront') === '0') $('#mediaBack').checked = true;
+}
 listSinks();

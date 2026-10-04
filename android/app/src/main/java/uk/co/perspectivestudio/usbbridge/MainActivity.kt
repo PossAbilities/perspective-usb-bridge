@@ -16,8 +16,10 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -277,14 +279,13 @@ class MainActivity : ComponentActivity() {
                     )
                     Spacer(Modifier.width(14.dp))
                     Column {
-                        Text("PERSPECTIVE STUDIO", color = Orange, fontWeight = FontWeight.Bold)
                         Text(
-                            "USB Bridge.",
+                            "USB Bridge",
                             color = TextPrimary,
-                            style = MaterialTheme.typography.headlineLarge,
+                            style = MaterialTheme.typography.headlineMedium,
                             fontWeight = FontWeight.ExtraBold
                         )
-                        Text("Your USB. Anywhere.", color = TextDim)
+                        Text("Perspective Studio · drives, camera and microphone", color = TextDim)
                     }
                 }
                 Spacer(Modifier.height(18.dp))
@@ -295,7 +296,7 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(Modifier.padding(18.dp)) {
-                        Text("THIS TABLET", color = Lime, fontWeight = FontWeight.Bold)
+                        SectionTitle("This tablet")
                         Text(
                             address?.let { "$it · USB/IP port ${UsbIpServer.PORT}" }
                                 ?: "Waiting for a Wi-Fi connection…",
@@ -324,7 +325,7 @@ class MainActivity : ComponentActivity() {
                             modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp)
                         ) {
                             Column(Modifier.padding(18.dp)) {
-                                Text("USB HUB DETECTED", color = Lime, fontWeight = FontWeight.Bold)
+                                SectionTitle("USB hub connected")
                                 Text(
                                     "${hubs.size} hub${if (hubs.size == 1) "" else "s"} connected. Drives attached through the hub appear separately below.",
                                     color = TextDim
@@ -348,7 +349,7 @@ class MainActivity : ComponentActivity() {
                     Spacer(Modifier.height(18.dp))
                     Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(22.dp)) {
                         Column(Modifier.padding(18.dp)) {
-                            Text("DIAGNOSTICS", color = Orange, fontWeight = FontWeight.Bold)
+                            SectionTitle("Activity")
                             Spacer(Modifier.height(8.dp))
                             log.forEach { Text(it, color = TextDim, style = MaterialTheme.typography.bodySmall) }
                         }
@@ -362,6 +363,17 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
+    private fun SectionTitle(text: String) {
+        Text(
+            text,
+            color = TextPrimary,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(bottom = 4.dp)
+        )
+    }
+
+    @Composable
     private fun MediaCard(address: String?, running: Boolean, message: String) {
         Card(
             colors = CardDefaults.cardColors(containerColor = Panel),
@@ -369,7 +381,7 @@ class MainActivity : ComponentActivity() {
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(Modifier.padding(20.dp)) {
-                Text("CAMERA & MICROPHONE", color = Lime, fontWeight = FontWeight.Bold)
+                SectionTitle("Camera & microphone")
                 Text(
                     address?.let { "On your Mac or PC, connect to $it (camera port ${MediaProtocol.PORT})." }
                         ?: "Connect this tablet to Wi-Fi to share its camera.",
@@ -379,8 +391,15 @@ class MainActivity : ComponentActivity() {
                 Text(message, color = TextDim)
                 Spacer(Modifier.height(14.dp))
                 if (running) {
-                    Text("Camera bridge running — you can switch to Parsec now", color = Lime, fontWeight = FontWeight.Bold)
-                    TextButton(onClick = { stopMedia() }) { Text("Stop sharing camera", color = TextPrimary) }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(10.dp).background(Lime, CircleShape))
+                        Spacer(Modifier.width(10.dp))
+                        Text("Live — you can switch to Parsec now", color = Lime, fontWeight = FontWeight.Bold)
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(onClick = { stopMedia() }, shape = RoundedCornerShape(999.dp)) {
+                        Text("Stop sharing camera", color = TextPrimary)
+                    }
                 } else {
                     Button(
                         onClick = { requestMedia() },
