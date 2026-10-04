@@ -42,14 +42,38 @@ class VideoEncoder(
         private const val KEYFRAME_INTERVAL_SECONDS = 1
     }
 
-    private val codec: MediaCodec = MediaCodec.createEncoderByType(MIME)
     private val running = AtomicBoolean(false)
     private var drainThread: Thread? = null
 
+    private val codec: MediaCodec
     val inputSurface: Surface
 
     init {
-        val format = MediaFormat.createVideoFormat(MIME, width, height).apply {
+        // Some Samsung (Exynos) encoders reject an explicit profile without a
+        // level, or the low-latency key, and fail configure() outright. Ask for
+        // the ideal first and fall back to plainer formats rather than failing
+        // the whole stream.
+        var configured: MediaCodec? = null
+        var lastError: Exception? = null
+        for ((baseline, lowLatency) in listOf(true to true, false to true, false to false)) {
+            val candidate = MediaCodec.createEncoderByType(MIME)
+            try {
+                candidate.configure(format(bitRate, baseline, lowLatency), null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+                configured = candidate
+                break
+            } catch (e: Exception) {
+                lastError = e
+                runCatching { candidate.release() }
+            }
+        }
+        codec = configured ?: throw IllegalStateException(
+            "The video encoder refused ${width}x$height: ${lastError?.message ?: "unknown reason"}"
+        )
+        inputSurface = codec.createInputSurface()
+    }
+
+    private fun format(bitRate: Int, baseline: Boolean, lowLatency: Boolean): MediaFormat =
+        MediaFormat.createVideoFormat(MIME, width, height).apply {
             setInteger(
                 MediaFormat.KEY_COLOR_FORMAT,
                 MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface
@@ -57,17 +81,19 @@ class VideoEncoder(
             setInteger(MediaFormat.KEY_BIT_RATE, bitRate)
             setInteger(MediaFormat.KEY_FRAME_RATE, frameRate)
             setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, KEYFRAME_INTERVAL_SECONDS)
-            setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_VBR)
+            // The plainest fallback leaves the bitrate mode to the encoder too.
+            if (baseline || lowLatency) {
+                setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_VBR)
+            }
             // Baseline keeps decoder cost down and avoids B-frames, which would
             // reorder output and add a frame of latency.
-            setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline)
-            if (android.os.Build.VERSION.SDK_INT >= 30) {
+            if (baseline) {
+                setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline)
+            }
+            if (lowLatency && android.os.Build.VERSION.SDK_INT >= 30) {
                 setInteger(MediaFormat.KEY_LATENCY, 1)
             }
         }
-        codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
-        inputSurface = codec.createInputSurface()
-    }
 
     fun start(timestampUs: () -> Long) {
         if (!running.compareAndSet(false, true)) return
@@ -248,10 +274,12 @@ class CameraSource(
                                     .createCaptureRequest(CameraDevice.TEMPLATE_RECORD)
                                     .apply {
                                         addTarget(surface)
-                                        set(
-                                            CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE,
-                                            Range(frameRate, frameRate)
-                                        )
+                                        // An unsupported range makes the whole
+                                        // request fail, so only ask for one
+                                        // the camera advertises.
+                                        fpsRange(id, frameRate)?.let {
+                                            set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, it)
+                                        }
                                     }
                                     .build()
                                 runCatching {
@@ -275,11 +303,31 @@ class CameraSource(
             }
 
             override fun onError(camera: CameraDevice, error: Int) {
-                onError("Camera error $error")
+                onError(describeError(error))
                 camera.close()
                 device = null
             }
         }, handler)
+    }
+
+    /** Fixed rate if offered, else the steadiest range that reaches it. */
+    private fun fpsRange(id: String, frameRate: Int): Range<Int>? {
+        val ranges = runCatching {
+            manager.getCameraCharacteristics(id).get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES)
+        }.getOrNull() ?: return null
+        return ranges.firstOrNull { it.lower == frameRate && it.upper == frameRate }
+            ?: ranges.filter { it.upper == frameRate }.maxByOrNull { it.lower }
+            ?: ranges.filter { it.contains(frameRate) }.maxByOrNull { it.lower }
+    }
+
+    private fun describeError(error: Int): String = when (error) {
+        CameraDevice.StateCallback.ERROR_CAMERA_IN_USE,
+        CameraDevice.StateCallback.ERROR_MAX_CAMERAS_IN_USE ->
+            "The tablet camera is in use by another app. Close it and try again."
+        CameraDevice.StateCallback.ERROR_CAMERA_DISABLED ->
+            "Android blocked the camera. Open Perspective USB Bridge on the tablet, " +
+                "tap Stop sharing camera, then Share camera & microphone again."
+        else -> "The tablet camera stopped with an error ($error). Try again."
     }
 
     fun stop() {

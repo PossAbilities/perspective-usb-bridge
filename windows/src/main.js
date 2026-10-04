@@ -296,6 +296,7 @@ ipcMain.handle('media:connect', async (_event, host, options) => {
 
   return new Promise((resolve, reject) => {
     const parser = new mediaClient.MediaStreamParser();
+    let tabletReason = '';
     const socket = net.createConnection({ host, port: mediaClient.PORT }, () => {
       socket.setNoDelay(true);
       keepAwake(true);
@@ -326,8 +327,11 @@ ipcMain.handle('media:connect', async (_event, host, options) => {
       for (const event of events) {
         if (event.kind === 'accepted') {
           socket.setTimeout(0);
-          sendToMediaWindow('media:accepted', event);
-        } else {
+          if (!parser.refused) sendToMediaWindow('media:accepted', event);
+        } else if (event.type === mediaClient.TYPE_ERROR) {
+          tabletReason = event.payload.toString('utf8').trim();
+          sendToMediaWindow('media:error', `Tablet: ${tabletReason}`);
+        } else if (!parser.refused) {
           // receivedAt lets the renderer measure arrival jitter and drift
           // against the tablet's own timestamps.
           sendToMediaWindow('media:frame', {
@@ -347,6 +351,9 @@ ipcMain.handle('media:connect', async (_event, host, options) => {
       reject(error);
     });
     socket.on('close', () => {
+      if (parser.refused && !tabletReason) {
+        sendToMediaWindow('media:error', 'The tablet refused the stream. Is its camera available?');
+      }
       sendToMediaWindow('media:closed', null);
       if (mediaSocket === socket) mediaSocket = null;
     });

@@ -59,9 +59,18 @@ test('the accepted geometry is reported, not the requested one', () => {
   assert.deepEqual(events, [{ kind: 'accepted', width: 640, height: 480, frameRate: 24, status: 0 }]);
 });
 
-test('a refusal is surfaced as an error, not silently streamed', () => {
+test('a refusal is flagged and the tablet\'s reason that follows is still read', () => {
   const parser = new mc.MediaStreamParser();
-  assert.throws(() => parser.push(accept({ status: 1 })), /refused/i);
+  const reason = Buffer.from('The video encoder refused 1920x1080', 'utf8');
+  const header = Buffer.alloc(20);
+  header.write('PMF1', 0, 'ascii');
+  header.writeUInt8(mc.TYPE_ERROR, 4);
+  header.writeUInt32BE(reason.length, 16);
+  const events = parser.push(Buffer.concat([accept({ status: 1 }), header, reason]));
+  assert.equal(parser.refused, true);
+  assert.equal(events[0].status, 1);
+  assert.equal(events[1].type, mc.TYPE_ERROR);
+  assert.equal(events[1].payload.toString('utf8'), 'The video encoder refused 1920x1080');
 });
 
 test('a foreign or mismatched peer is rejected', () => {
