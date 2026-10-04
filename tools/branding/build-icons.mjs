@@ -15,6 +15,7 @@
  *   windows/build/installerHeader.bmp NSIS header strip,  150x57
  *   windows/build/installerSidebar.bmp NSIS welcome page, 164x314
  *   windows/src/assets/icon-256.png   BrowserWindow icon
+ *   windows/build/icon.png            macOS app icon, 1024px, converted to .icns by electron-builder
    android res mipmap-<density>   legacy launcher PNG fallbacks
  */
 import sharp from 'sharp';
@@ -164,6 +165,14 @@ async function buildBmp(path, width, height, markSize, left, top) {
 console.log('Building Perspective USB Bridge icons from branding/ps-mark-primary.svg');
 await buildIco(out('windows/build/icon.ico'), [16, 24, 32, 48, 64, 128, 256]);
 await write(out('windows/src/assets/icon-256.png'), await renderMark(256));
+// macOS icons are a rounded square with a margin, per Apple's icon grid:
+// an 824px tile centred on a 1024px canvas.
+const macTile = Buffer.from(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024">' +
+  `<rect x="100" y="100" width="824" height="824" rx="185" fill="${MIDNIGHT}"/></svg>`
+);
+await write(out('windows/build/icon.png'), await sharp(macTile)
+  .composite([{ input: await renderMark(560), left: 232, top: 232 }]).png().toBuffer());
 // Header strip sits to the right of the wizard title; sidebar fills the left column.
 await buildBmp(out('windows/build/installerHeader.bmp'), 150, 57, 44, 96, 6);
 await buildBmp(out('windows/build/installerSidebar.bmp'), 164, 314, 108, 28, 103);

@@ -21,6 +21,10 @@ jobs:
           distribution: temurin
           java-version: '21'
       - uses: android-actions/setup-android@v3
+        with:
+          # The action's default also asks for the legacy 'tools' package, which
+          # Google has withdrawn, so sdkmanager fails before anything builds.
+          packages: platform-tools
       - name: Install Android SDK platform
         run: sdkmanager "platforms;android-36"
       - uses: gradle/actions/setup-gradle@v4
@@ -73,8 +77,33 @@ jobs:
           name: release-windows
           path: windows/dist/*Setup*.exe
 
+  mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Node dependencies
+        working-directory: windows
+        run: npm install
+      - name: Run client tests
+        working-directory: windows
+        run: npm test
+      - name: Build Perspective Camera Bridge disk images
+        working-directory: windows
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npm run pack:mac
+      - name: Verify Mac disk images exist
+        run: ls windows/dist/*.dmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-mac
+          path: windows/dist/*.dmg
+
   publish:
-    needs: [android, windows]
+    needs: [android, windows, mac]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -86,6 +115,7 @@ jobs:
         run: |
           test -n "$(find release-files -maxdepth 1 -name '*.apk' -print -quit)"
           test -n "$(find release-files -maxdepth 1 -name '*.exe' -print -quit)"
+          test -n "$(find release-files -maxdepth 1 -name '*.dmg' -print -quit)"
       - uses: softprops/action-gh-release@v2
         with:
           files: release-files/*

@@ -12,7 +12,13 @@ let scanning = false;
 
 function setStatus(text, error = false) {
   status.textContent = text;
-  status.style.color = error ? '#F4592B' : '#CFE96A';
+  status.dataset.state = error ? 'error' : 'ok';
+}
+
+function setPill(text, state) {
+  const pill = $('#discoveryPill');
+  pill.textContent = text;
+  pill.dataset.state = state;
 }
 
 function escapeHtml(value) {
@@ -65,14 +71,14 @@ async function checkRuntime() {
     const hashText = info.sha256 ? ` · SHA-256 ${info.sha256.slice(0, 12)}…` : '';
     if (runtime.installed) {
       el.textContent = `Ready. USB/IP runtime${releaseText} found${hashText}.`;
-      el.style.color = '#CFE96A';
+      el.style.color = '';
       install.hidden = true;
       warning.hidden = true;
     } else {
       el.textContent = runtime.bundledInstaller
         ? `One setup step remains. Bundled USB/IP runtime${releaseText}${hashText}.`
         : 'USB/IP Windows driver is not installed and this development build does not contain the signed runtime.';
-      el.style.color = '#F4592B';
+      el.style.color = 'var(--danger)';
       install.hidden = !runtime.bundledInstaller;
       warning.hidden = !runtime.bundledInstaller;
     }
@@ -99,11 +105,11 @@ function attachmentFor(busId) {
 function renderDevice(device, target) {
   const attachment = attachmentFor(device.busId);
   const el = document.createElement('article');
-  el.className = 'device';
+  el.className = attachment ? 'device connected' : 'device';
   const meta = [device.busId, device.vidPid].filter(Boolean).map(escapeHtml).join(' · ');
   el.innerHTML =
     `<div><h2>${escapeHtml(device.name)}</h2><div class="meta">${meta}</div></div>` +
-    `<button>${attachment ? 'Disconnect' : 'Connect drive'}</button>`;
+    `<button${attachment ? ' class="secondary"' : ''}>${attachment ? 'Disconnect' : 'Connect drive'}</button>`;
 
   const button = el.querySelector('button');
   button.addEventListener('click', async () => {
@@ -198,12 +204,14 @@ window.bridge.onDiscovered(info => {
   if (!host.value.trim() || (previous && host.value.trim() === previous.host)) host.value = info.host;
   const countText = Number.isFinite(info.sharedCount) ? ` · ${info.sharedCount} shared` : '';
   $('#discoveryHint').textContent = `Perspective USB Bridge found on ${info.host}${countText}.`;
+  setPill(`Tablet ${info.host}`, 'ok');
   if (changed && runtimeReady) scan(true);
 });
 
 window.bridge.onDiscoveryError(message => {
   $('#discoveryHint').textContent =
     `Automatic discovery is unavailable (${message}). Type the tablet's IP address shown in the Android app.`;
+  setPill('Discovery off', 'error');
 });
 
 (async () => {

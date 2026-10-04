@@ -1,35 +1,82 @@
 <!doctype html>
-<html><head><meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'">
+<html lang="en"><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; font-src 'self'; script-src 'self'">
 <title>Perspective Camera Bridge</title><link rel="stylesheet" href="styles.css"></head>
 <body>
-  <main class="shell">
-    <header class="brand"><img src="assets/ps-mark-primary.svg" alt=""><div><div class="eyebrow">PERSPECTIVE STUDIO</div><h1>Camera Bridge.</h1><p>Phase 2 — latency measurement</p></div></header>
+  <header class="topbar">
+    <img src="assets/ps-mark-primary.svg" alt="">
+    <div class="title"><h1>Camera Bridge</h1><span class="studio">Perspective Studio</span></div>
+    <div id="mediaStatus" class="pill" role="status" aria-live="polite" data-state="idle">Not connected</div>
+  </header>
 
-    <section class="card">
-      <label for="mediaHost">Samsung tablet</label>
-      <div class="row">
-        <input id="mediaHost" placeholder="192.168.1.92" spellcheck="false">
-        <button id="mediaConnect">Connect</button>
+  <main class="camera">
+    <section class="stage empty" id="stage" aria-label="Tablet camera">
+      <canvas id="preview" width="1280" height="720"></canvas>
+      <div class="placeholder">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="6" width="13" height="12" rx="2.5"/><path d="M15.5 10.5l5-3v9l-5-3"/></svg>
+        <h2 id="placeholderTitle">Waiting for your tablet</h2>
+        <ol>
+          <li><span>On the tablet, open Perspective USB Bridge and tap <b>Share camera &amp; microphone</b>.</span></li>
+          <li><span>Switch to Parsec if you like. The camera keeps running in the background.</span></li>
+          <li><span>Enter the address shown on the tablet and press <b>Connect</b>.</span></li>
+        </ol>
       </div>
-      <p class="hint" id="mediaHint">Open Perspective USB Bridge on the tablet and start the camera bridge first.</p>
     </section>
 
-    <section id="mediaStatus" class="status">Not connected.</section>
+    <aside class="controls">
+      <div class="group">
+        <h2>Tablet</h2>
+        <label for="mediaHost">Address</label>
+        <div class="row">
+          <input id="mediaHost" placeholder="192.168.1.92" spellcheck="false" autocomplete="off" inputmode="decimal">
+          <button id="mediaConnect">Connect</button>
+        </div>
+        <p class="hint" id="mediaHint">Filled in automatically when the tablet is found on your Wi-Fi.</p>
+      </div>
 
-    <section class="card">
-      <canvas id="preview" width="1280" height="720" style="width:100%;height:auto;background:#0d0a26;border-radius:12px"></canvas>
-    </section>
+      <div class="group">
+        <h2>Camera</h2>
+        <div class="row">
+          <div class="segmented" role="radiogroup" aria-label="Which camera">
+            <input type="radio" name="lens" id="mediaFront" value="front" checked><label for="mediaFront">Front</label>
+            <input type="radio" name="lens" id="mediaBack" value="back"><label for="mediaBack">Back</label>
+          </div>
+        </div>
+        <div class="row">
+          <div class="segmented" role="radiogroup" aria-label="Resolution">
+            <input type="radio" name="size" id="size720" value="1280x720" checked><label for="size720">720p</label>
+            <input type="radio" name="size" id="size1080" value="1920x1080"><label for="size1080">1080p</label>
+          </div>
+        </div>
+        <p class="hint">Changes apply the next time you connect.</p>
+      </div>
 
-    <section class="card diagnostics">
-      <label>Measurements</label>
-      <pre id="stats">Waiting for frames…</pre>
-      <p class="hint">Drift is what matters: a steadily rising figure means latency is
-      accumulating. For true glass-to-glass, point the tablet at this screen showing a
-      running stopwatch and photograph both.</p>
-    </section>
+      <div class="group">
+        <h2>Microphone</h2>
+        <label for="audioSink">Send the tablet microphone to</label>
+        <div class="row"><select id="audioSink"></select></div>
+        <p class="hint" id="audioHint">Choose <b>BlackHole 2ch</b> (Mac) or <b>CABLE Input</b> (Windows), then pick the same device as the microphone in Zoom, Teams or FaceTime. Not your speakers: Parsec would send your voice back to the tablet.</p>
+      </div>
 
-    <button id="mediaDisconnect" class="secondary">Disconnect</button>
-    <footer>Perspective USB Bridge · camera bridge preview</footer>
+      <div class="group">
+        <h2>Use in calls</h2>
+        <button id="cleanView" class="secondary block">Show camera output view</button>
+        <p class="hint">Shows only the picture, for OBS to capture and offer as <b>OBS Virtual Camera</b>. Press <b>Esc</b> or double-click to come back.</p>
+      </div>
+
+      <details class="group">
+        <summary>Connection details</summary>
+        <dl class="metrics" id="stats">
+          <dt>Picture</dt><dd id="mSize">—</dd>
+          <dt>Frame rate</dt><dd id="mFps">—</dd>
+          <dt>Bitrate</dt><dd id="mRate">—</dd>
+          <dt>Decode time</dt><dd id="mDecode">—</dd>
+          <dt>Arrival jitter</dt><dd id="mJitter">—</dd>
+          <dt>Drift</dt><dd id="mDrift">—</dd>
+          <dt>Dropped</dt><dd id="mDropped">—</dd>
+        </dl>
+        <p class="hint">Drift should stay near zero. If it climbs steadily, delay is building up: move the tablet closer to the router or use 5 GHz Wi-Fi.</p>
+      </details>
+    </aside>
   </main>
 <script src="mediaRenderer.js"></script></body></html>

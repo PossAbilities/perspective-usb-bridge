@@ -93,7 +93,11 @@ installing a virtual USB device on the host, which is the same shape as the
 architecture above. That is evidence the design is sound, not a shortcut we can
 take.
 
-Remaining options, in order of preference:
+On a **Mac host** the same gap exists, and today it is bridged without any
+driver of our own: the client plays the microphone into BlackHole and the clean
+video view is presented through OBS Virtual Camera. See `MAC-SETUP.md`.
+
+Remaining options on Windows, in order of preference:
 
 1. Depend on an installed virtual audio cable and have the user select it in the
    conferencing app. Works today; redistribution licensing needs checking.
