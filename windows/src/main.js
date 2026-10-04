@@ -391,7 +391,8 @@ function connectViaRelay(code, options) {
       if (mediaSocket === handle) mediaSocket = null;
       const reason = relayCloseReason(event.code);
       if (!opened) {
-        const message = reason || 'Could not reach the camera relay. Is this computer online?';
+        const message = reason ||
+          'Could not reach the camera relay (camrelay.pixelhub.org.uk). Check this computer is online; if it is, the relay is not set up yet.';
         sendToMediaWindow('media:error', message);
         sendToMediaWindow('media:closed', null);
         return reject(new Error(message));

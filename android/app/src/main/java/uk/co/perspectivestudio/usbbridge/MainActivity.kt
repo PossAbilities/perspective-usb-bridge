@@ -3,6 +3,8 @@ package uk.co.perspectivestudio.usbbridge
 import android.Manifest
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -340,9 +342,22 @@ class MainActivity : ComponentActivity() {
                 Spacer(Modifier.height(20.dp))
                 Text("Anywhere: enter this code on the Mac", style = Brand.hint)
                 Spacer(Modifier.height(4.dp))
+                var copied by remember { mutableStateOf(false) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        RelayLink.displayCode(pairingCode),
+                        style = Brand.title.copy(fontSize = 34.sp, letterSpacing = 3.sp, color = Brand.Lime),
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    Spacer(Modifier.width(14.dp))
+                    SecondaryButton(
+                        if (copied) "Copied" else "Copy",
+                        onClick = { copyPairingCode(); copied = true }
+                    )
+                }
                 Text(
-                    RelayLink.displayCode(pairingCode),
-                    style = Brand.title.copy(fontSize = 34.sp, letterSpacing = 3.sp, color = Brand.Lime)
+                    "Parsec shares the clipboard, so you can paste it straight into the Mac app.",
+                    style = Brand.hint
                 )
                 Spacer(Modifier.height(14.dp))
                 LabelledValue(
@@ -428,6 +443,12 @@ class MainActivity : ComponentActivity() {
         Disclosure("Activity") {
             log.forEach { Text(it, style = Brand.mono.copy(fontSize = 12.sp, color = Brand.Dim), modifier = Modifier.padding(vertical = 2.dp)) }
         }
+    }
+
+    private fun copyPairingCode() {
+        getSystemService(ClipboardManager::class.java).setPrimaryClip(
+            ClipData.newPlainText("Perspective pairing code", RelayLink.displayCode(pairingCode))
+        )
     }
 
     private fun granted(permission: String): Boolean =
