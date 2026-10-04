@@ -22,7 +22,9 @@ bridgeSources.filter.exclude(
     "**/MainActivity.kt",
     "**/UsbBridgeService.kt",
     "**/MediaCapture.kt",
-    "**/MediaBridgeService.kt"
+    "**/MediaBridgeService.kt",
+    // Needs OkHttp; only MediaBridgeService uses it.
+    "**/RelayLink.kt"
 )
 
 tasks.named("run") { description = "Runs the USB/IP protocol conformance harness." }
