@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, powerSaveBlocker, session } = require('electron');
 const path = require('path');
 const os = require('os');
 const dgram = require('dgram');
@@ -16,6 +16,12 @@ const DISCOVERY_MAGIC_V1 = 'PERSPECTIVE_USB_BRIDGE_V1';
 const DISCOVERY_PROBE = 'PERSPECTIVE_USB_BRIDGE_DISCOVER';
 const PROBE_INTERVAL_MS = 3000;
 const USBIP_TIMEOUT_MS = 20000;
+
+/**
+ * USB/IP drive sharing relies on the Windows usbip-win2 driver. On macOS only
+ * the camera and microphone bridge is offered, so it becomes the main window.
+ */
+const IS_MAC = process.platform === 'darwin';
 
 let mainWindow = null;
 let discoverySocket = null;
@@ -157,6 +163,10 @@ function startDiscovery() {
     const text = msg.toString('utf8').trim();
     if (text.startsWith(DISCOVERY_PROBE)) return; // our own probe looped back
     const parts = text.split('|');
+    if (parts[0] === DISCOVERY_MAGIC_V2 || parts[0] === DISCOVERY_MAGIC_V1) {
+      // The camera window only needs the address, whatever is shared.
+      sendToMediaWindow('media:discovered', rinfo.address);
+    }
     if (parts[0] === DISCOVERY_MAGIC_V2 && parts.length >= 3) {
       mainWindow?.webContents.send('bridge:discovered', {
         host: rinfo.address,
@@ -221,8 +231,24 @@ function createWindow() {
 
 let mediaWindow = null;
 let mediaSocket = null;
+let suspensionBlocker = null;
+
+/**
+ * The window usually sits behind the conferencing app, or behind nothing at all
+ * while the Mac is driven through Parsec. Without this, macOS App Nap and
+ * Chromium's background throttling starve the decoder and the audio stutters.
+ */
+function keepAwake(active) {
+  if (active && suspensionBlocker === null) {
+    suspensionBlocker = powerSaveBlocker.start('prevent-app-suspension');
+  } else if (!active && suspensionBlocker !== null) {
+    powerSaveBlocker.stop(suspensionBlocker);
+    suspensionBlocker = null;
+  }
+}
 
 function closeMediaSocket() {
+  keepAwake(false);
   if (!mediaSocket) return;
   const socket = mediaSocket;
   mediaSocket = null;
@@ -250,7 +276,8 @@ function openMediaWindow() {
     webPreferences: {
       preload: path.join(__dirname, 'mediaPreload.js'),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      backgroundThrottling: false
     }
   });
   mediaWindow.setMenuBarVisibility(false);
@@ -271,6 +298,7 @@ ipcMain.handle('media:connect', async (_event, host, options) => {
     const parser = new mediaClient.MediaStreamParser();
     const socket = net.createConnection({ host, port: mediaClient.PORT }, () => {
       socket.setNoDelay(true);
+      keepAwake(true);
       socket.write(mediaClient.buildRequest(options || {}));
       resolve({ connected: true, host, port: mediaClient.PORT });
     });
@@ -462,11 +490,21 @@ if (!singleInstance) {
   app.quit();
 } else {
   app.on('second-instance', () => {
-    if (mainWindow) { if (mainWindow.isMinimized()) mainWindow.restore(); mainWindow.focus(); }
+    const window = mainWindow || mediaWindow;
+    if (window && !window.isDestroyed()) { if (window.isMinimized()) window.restore(); window.focus(); }
   });
   app.whenReady().then(() => {
-    createWindow();
+    // Output device names are hidden from pages without the media permission,
+    // and the camera window needs them to find the virtual audio device.
+    session.defaultSession.setPermissionCheckHandler((_wc, permission) =>
+      permission === 'media' || permission === 'speaker-selection');
+    if (IS_MAC) openMediaWindow(); else createWindow();
     startDiscovery();
+  });
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+      if (IS_MAC) openMediaWindow(); else createWindow();
+    }
   });
 }
 
@@ -477,4 +515,6 @@ app.on('before-quit', () => {
   try { discoverySocket?.close(); } catch { /* already closed */ }
   discoverySocket = null;
 });
-app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+// Closing the only window ends the bridge on every platform; leaving the app
+// running with nothing visible would keep the tablet's camera busy.
+app.on('window-all-closed', () => app.quit());

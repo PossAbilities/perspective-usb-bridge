@@ -24,11 +24,12 @@ import java.io.IOException
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Serves the tablet's camera and microphone to Windows over TCP.
+ * Serves the tablet's camera and microphone to a Mac or Windows PC over TCP.
  *
  * One client at a time: the camera can only be pointed at one encoder, and a
  * second viewer would have no way to ask for different geometry anyway.
@@ -47,6 +48,11 @@ class MediaBridgeService : Service() {
         private const val DEFAULT_HEIGHT = 720
         private const val DEFAULT_FRAME_RATE = 30
 
+        /** True while the server is listening, so the UI can show the right button on reopen. */
+        @Volatile
+        var isRunning = false
+            private set
+
         /** ~0.1 bits per pixel per frame, which is a reasonable H.264 call quality. */
         private fun bitRateFor(width: Int, height: Int, frameRate: Int): Int =
             (width.toLong() * height * frameRate / 10).toInt().coerceIn(800_000, 8_000_000)
@@ -55,6 +61,8 @@ class MediaBridgeService : Service() {
     private val running = AtomicBoolean(false)
     private val pool = Executors.newCachedThreadPool()
     private var serverSocket: ServerSocket? = null
+    /** Open client sockets, closed on shutdown so their camera and mic are released. */
+    private val clients = ConcurrentHashMap.newKeySet<Socket>()
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
     private var foregroundStarted = false
@@ -71,12 +79,16 @@ class MediaBridgeService : Service() {
     private fun enterForeground() {
         if (foregroundStarted) return
         createChannel()
-        val type = if (Build.VERSION.SDK_INT >= 30) {
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
-        } else {
-            0
+        // Android 14+ throws if a type is claimed without its runtime permission,
+        // so only claim what has been granted. Starting with these types while the
+        // activity is on screen is also what lets the camera and microphone keep
+        // working once the user switches to Parsec.
+        var type = 0
+        if (Build.VERSION.SDK_INT >= 30) {
+            if (hasPermission(Manifest.permission.CAMERA)) type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+            if (hasPermission(Manifest.permission.RECORD_AUDIO)) type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
         }
-        ServiceCompat.startForeground(this, NOTIFICATION_ID, notification("Camera ready for Windows"), type)
+        ServiceCompat.startForeground(this, NOTIFICATION_ID, notification("Sharing camera and microphone"), type)
         foregroundStarted = true
     }
 
@@ -100,6 +112,7 @@ class MediaBridgeService : Service() {
             return
         }
         serverSocket = socket
+        isRunning = true
         acquireLocks()
         publish("ready", "Camera bridge listening on TCP ${MediaProtocol.PORT}")
 
@@ -118,6 +131,7 @@ class MediaBridgeService : Service() {
     }
 
     private fun serve(socket: Socket) {
+        clients.add(socket)
         socket.use { client ->
             val input = DataInputStream(BufferedInputStream(client.getInputStream()))
             val output = DataOutputStream(BufferedOutputStream(client.getOutputStream(), 256 * 1024))
@@ -139,7 +153,8 @@ class MediaBridgeService : Service() {
                 publish("error", "Stream failed: ${e.message ?: e.javaClass.simpleName}")
             } finally {
                 session?.stop()
-                publish("ready", "$peer disconnected")
+                clients.remove(client)
+                if (running.get()) publish("ready", "$peer disconnected")
             }
         }
     }
@@ -286,10 +301,17 @@ class MediaBridgeService : Service() {
         wifiLock = null
     }
 
+    private fun closeClients() {
+        clients.forEach { runCatching { it.close() } }
+        clients.clear()
+    }
+
     private fun shutdown() {
         running.set(false)
+        isRunning = false
         runCatching { serverSocket?.close() }
         serverSocket = null
+        closeClients()
         releaseLocks()
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         foregroundStarted = false
@@ -328,9 +350,13 @@ class MediaBridgeService : Service() {
 
     override fun onDestroy() {
         running.set(false)
+        isRunning = false
         runCatching { serverSocket?.close() }
+        // A blocked socket read ignores thread interrupts; closing is what ends it.
+        closeClients()
         pool.shutdownNow()
         releaseLocks()
+        publish("stopped", "Camera and microphone sharing stopped")
         super.onDestroy()
     }
 

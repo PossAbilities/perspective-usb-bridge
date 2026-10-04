@@ -50,9 +50,26 @@ class MainActivity : ComponentActivity() {
     private var permissionTick = mutableStateOf(0)
     private var pendingShareDeviceId: Int? = null
     private var receiversRegistered = false
+    private var mediaRunning = mutableStateOf(MediaBridgeService.isRunning)
+    private var mediaMessage = mutableStateOf(
+        "Share this tablet's camera and microphone with your Mac or PC, then switch to Parsec."
+    )
 
     private val notificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+
+    private val mediaPermissions =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
+            val camera = results[Manifest.permission.CAMERA] == true || granted(Manifest.permission.CAMERA)
+            val mic = results[Manifest.permission.RECORD_AUDIO] == true || granted(Manifest.permission.RECORD_AUDIO)
+            if (!camera) {
+                mediaMessage.value =
+                    "Camera permission is needed. Allow it in Settings → Apps → Perspective USB Bridge → Permissions."
+                return@registerForActivityResult
+            }
+            startMedia()
+            if (!mic) mediaMessage.value = "Microphone permission was declined, so only video will be shared."
+        }
 
     /** Our own broadcasts: app-private, so they stay NOT_EXPORTED. */
     private val appReceiver = object : BroadcastReceiver() {
@@ -78,6 +95,17 @@ class MainActivity : ComponentActivity() {
                         bridgeMessage.value =
                             "Android did not grant USB access. Tap Allow access again and choose OK, " +
                                 "then keep this app open."
+                    }
+                }
+                MediaBridgeService.ACTION_STATE -> {
+                    val state = intent.getStringExtra(MediaBridgeService.EXTRA_STATE) ?: ""
+                    val text = intent.getStringExtra(MediaBridgeService.EXTRA_MESSAGE) ?: ""
+                    mediaRunning.value = MediaBridgeService.isRunning
+                    // Keep a startup error on screen rather than the "stopped" that follows it.
+                    val keepError = state == "stopped" && mediaMessage.value.startsWith("Problem:")
+                    if (text.isNotBlank() && !keepError) {
+                        mediaMessage.value = if (state == "error") "Problem: $text" else text
+                        bridgeLog.value = (listOf("Camera: $text") + bridgeLog.value).take(12)
                     }
                 }
                 UsbBridgeService.ACTION_STATE -> {
@@ -126,7 +154,9 @@ class MainActivity : ComponentActivity() {
                     message = bridgeMessage.value,
                     address = hostAddress.value,
                     log = bridgeLog.value,
-                    permissionTick = permissionTick.value
+                    permissionTick = permissionTick.value,
+                    mediaRunning = mediaRunning.value,
+                    mediaMessage = mediaMessage.value
                 )
             }
         }
@@ -155,6 +185,7 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         refreshDevices()
+        mediaRunning.value = MediaBridgeService.isRunning
         // Keep the tablet discoverable while the app is open so the Windows client
         // can find it before anything has been shared.
         sendToService(UsbBridgeService.ACTION_START_HOST)
@@ -196,6 +227,7 @@ class MainActivity : ComponentActivity() {
             IntentFilter().apply {
                 addAction(ACTION_USB_PERMISSION)
                 addAction(UsbBridgeService.ACTION_STATE)
+                addAction(MediaBridgeService.ACTION_STATE)
             },
             ContextCompat.RECEIVER_NOT_EXPORTED
         )
@@ -226,7 +258,9 @@ class MainActivity : ComponentActivity() {
         message: String,
         address: String?,
         log: List<String>,
-        permissionTick: Int
+        permissionTick: Int,
+        mediaRunning: Boolean,
+        mediaMessage: String
     ) {
         Surface(color = Midnight, modifier = Modifier.fillMaxSize()) {
             Column(
@@ -271,6 +305,8 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                Spacer(Modifier.height(18.dp))
+                MediaCard(address, mediaRunning, mediaMessage)
                 Spacer(Modifier.height(18.dp))
 
                 if (devices.isEmpty()) {
@@ -323,6 +359,67 @@ class MainActivity : ComponentActivity() {
                 Text("v0.7 multi-drive + hub prototype", color = TextDim)
             }
         }
+    }
+
+    @Composable
+    private fun MediaCard(address: String?, running: Boolean, message: String) {
+        Card(
+            colors = CardDefaults.cardColors(containerColor = Panel),
+            shape = RoundedCornerShape(22.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(Modifier.padding(20.dp)) {
+                Text("CAMERA & MICROPHONE", color = Lime, fontWeight = FontWeight.Bold)
+                Text(
+                    address?.let { "On your Mac or PC, connect to $it (camera port ${MediaProtocol.PORT})." }
+                        ?: "Connect this tablet to Wi-Fi to share its camera.",
+                    color = TextPrimary
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(message, color = TextDim)
+                Spacer(Modifier.height(14.dp))
+                if (running) {
+                    Text("Camera bridge running — you can switch to Parsec now", color = Lime, fontWeight = FontWeight.Bold)
+                    TextButton(onClick = { stopMedia() }) { Text("Stop sharing camera", color = TextPrimary) }
+                } else {
+                    Button(
+                        onClick = { requestMedia() },
+                        colors = ButtonDefaults.buttonColors(containerColor = Orange),
+                        shape = RoundedCornerShape(999.dp)
+                    ) { Text("Share camera & microphone") }
+                }
+            }
+        }
+    }
+
+    private fun granted(permission: String): Boolean =
+        ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
+
+    private fun requestMedia() {
+        val missing = listOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO).filterNot(::granted)
+        if (missing.isEmpty()) startMedia() else mediaPermissions.launch(missing.toTypedArray())
+    }
+
+    /**
+     * Must run while this activity is on screen: Android only lets a camera and
+     * microphone service keep using them in the background if it was started from
+     * the foreground. That is what keeps them live behind Parsec.
+     */
+    private fun startMedia() {
+        ContextCompat.startForegroundService(
+            this,
+            Intent(this, MediaBridgeService::class.java).setAction(MediaBridgeService.ACTION_START)
+        )
+        mediaRunning.value = true
+        mediaMessage.value = "Starting camera bridge…"
+    }
+
+    private fun stopMedia() {
+        // stopService rather than a STOP intent: startForegroundService would
+        // oblige the service to post a camera notification just to shut down.
+        stopService(Intent(this, MediaBridgeService::class.java))
+        mediaRunning.value = false
+        mediaMessage.value = "Camera and microphone sharing stopped."
     }
 
     @Composable

@@ -6,5 +6,6 @@ contextBridge.exposeInMainWorld('media', {
   onAccepted: cb => ipcRenderer.on('media:accepted', (_e, data) => cb(data)),
   onFrame: cb => ipcRenderer.on('media:frame', (_e, data) => cb(data)),
   onError: cb => ipcRenderer.on('media:error', (_e, message) => cb(message)),
-  onClosed: cb => ipcRenderer.on('media:closed', () => cb())
+  onClosed: cb => ipcRenderer.on('media:closed', () => cb()),
+  onDiscovered: cb => ipcRenderer.on('media:discovered', (_e, host) => cb(host))
 });

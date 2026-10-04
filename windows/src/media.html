@@ -4,7 +4,7 @@
 <title>Perspective Camera Bridge</title><link rel="stylesheet" href="styles.css"></head>
 <body>
   <main class="shell">
-    <header class="brand"><img src="assets/ps-mark-primary.svg" alt=""><div><div class="eyebrow">PERSPECTIVE STUDIO</div><h1>Camera Bridge.</h1><p>Phase 2 — latency measurement</p></div></header>
+    <header class="brand"><img src="assets/ps-mark-primary.svg" alt=""><div><div class="eyebrow">PERSPECTIVE STUDIO</div><h1>Camera Bridge.</h1><p>Tablet camera and microphone</p></div></header>
 
     <section class="card">
       <label for="mediaHost">Samsung tablet</label>
@@ -12,13 +12,26 @@
         <input id="mediaHost" placeholder="192.168.1.92" spellcheck="false">
         <button id="mediaConnect">Connect</button>
       </div>
-      <p class="hint" id="mediaHint">Open Perspective USB Bridge on the tablet and start the camera bridge first.</p>
+      <div class="row options">
+        <select id="mediaSize" aria-label="Resolution">
+          <option value="1280x720">720p</option>
+          <option value="1920x1080">1080p</option>
+        </select>
+        <label class="check"><input type="checkbox" id="mediaFront" checked> Front camera</label>
+      </div>
+      <p class="hint" id="mediaHint">On the tablet, open Perspective USB Bridge and tap <b>Share camera &amp; microphone</b>, then switch to Parsec. The address is shown on that card.</p>
+    </section>
+
+    <section class="card">
+      <label for="audioSink">Send the tablet microphone to</label>
+      <div class="row"><select id="audioSink"></select></div>
+      <p class="hint" id="audioHint">Pick a virtual audio device (BlackHole on Mac, VB-CABLE on Windows), then choose that same device as the microphone in Zoom, Teams or FaceTime. Avoid your speakers: Parsec would send your own voice back to the tablet.</p>
     </section>
 
     <section id="mediaStatus" class="status">Not connected.</section>
 
-    <section class="card">
-      <canvas id="preview" width="1280" height="720" style="width:100%;height:auto;background:#0d0a26;border-radius:12px"></canvas>
+    <section class="card" id="previewCard">
+      <canvas id="preview" width="1280" height="720"></canvas>
     </section>
 
     <section class="card diagnostics">
@@ -29,6 +42,7 @@
       running stopwatch and photograph both.</p>
     </section>
 
+    <button id="cleanView" class="secondary">Camera output view (for OBS Virtual Camera)</button>
     <button id="mediaDisconnect" class="secondary">Disconnect</button>
     <footer>Perspective USB Bridge · camera bridge preview</footer>
   </main>

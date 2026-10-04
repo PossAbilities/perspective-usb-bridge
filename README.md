@@ -62,11 +62,18 @@ Run it with the tablet screen off to cover acceptance test 8.
 
 ## Camera bridge
 
-Work in progress. See `docs/CAMERA-BRIDGE.md`. The Windows client has a **Camera
-bridge (preview)** button that connects to the tablet, decodes the H.264 stream
-with WebCodecs and reports frame rate, bitrate, decode time, arrival jitter and
-drift. Drift is the number that matters: a steadily rising figure means latency
-is accumulating.
+Shares the tablet's camera and microphone with a Mac or Windows PC over Wi-Fi,
+including while the tablet is in the background running Parsec. On the tablet,
+tap **Share camera & microphone**; on the computer, open the Camera Bridge
+window and connect.
+
+**Mac + Parsec:** step-by-step setup in [`docs/MAC-SETUP.md`](docs/MAC-SETUP.md).
+The microphone reaches call apps through BlackHole and the camera through OBS
+Virtual Camera.
+
+Design and wire protocol: `docs/CAMERA-BRIDGE.md`. The window also reports
+frame rate, bitrate, decode time, arrival jitter and drift. Drift is the number
+that matters: a steadily rising figure means latency is accumulating.
 
 ## Branding
 
@@ -101,6 +108,7 @@ Until Android release signing is configured, GitHub builds a clearly labelled te
 
 - `PerspectiveUSBBridge-Android-v0.7.0-TEST.apk`
 - `PerspectiveUSBBridge-Windows-Setup-0.7.0.exe`
+- `PerspectiveCameraBridge-Mac-0.7.0-arm64.dmg` and `…-x64.dmg` (camera and microphone only; USB drive sharing needs Windows)
 
 A tag such as `v0.7.0` triggers the combined release workflow. It refuses to publish if either platform artifact is missing.
 

@@ -138,9 +138,92 @@ function decodeVideo(frame) {
 
 // --------------------------------------------------------------------- audio
 
+/** Names of virtual audio devices that conferencing apps can use as a microphone. */
+const VIRTUAL_SINK = /blackhole|loopback|soundflower|vb-?cable|cable input|virtual/i;
+const SINK_NONE = 'none';
+const SINK_DEFAULT = 'default';
+
+function readSetting(key) {
+  try { return localStorage.getItem(key); } catch { return null; }
+}
+
+function writeSetting(key, value) {
+  try { localStorage.setItem(key, value); } catch { /* storage unavailable */ }
+}
+
+function selectedSink() {
+  return $('#audioSink').value || SINK_NONE;
+}
+
+async function listSinks() {
+  const select = $('#audioSink');
+  const previous = select.value || readSetting('audioSink');
+  let outputs = [];
+  try {
+    outputs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'audiooutput');
+  } catch { /* no device list: offer the fallbacks below */ }
+
+  select.textContent = '';
+  const add = (value, label) => {
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = label;
+    select.append(option);
+  };
+  add(SINK_NONE, 'Nowhere (video only)');
+  outputs
+    .filter(d => d.deviceId && d.deviceId !== 'default' && d.deviceId !== 'communications')
+    .forEach((d, i) => add(d.deviceId, d.label || `Audio output ${i + 1}`));
+  add(SINK_DEFAULT, 'System default output (testing only)');
+
+  const virtual = outputs.find(d => VIRTUAL_SINK.test(d.label));
+  const keep = previous && [...select.options].some(o => o.value === previous);
+  select.value = keep ? previous : (virtual ? virtual.deviceId : SINK_NONE);
+
+  const hint = $('#audioHint');
+  hint.dataset.original ??= hint.innerHTML;
+  hint.classList.toggle('warn', !virtual);
+  if (virtual) hint.innerHTML = hint.dataset.original;
+  else {
+    hint.textContent =
+      'No virtual audio device found. Install BlackHole 2ch (Mac, free) or VB-CABLE (Windows, free) ' +
+      'and it will appear here. Choose it here and as the microphone in your call app.';
+  }
+  await applySink();
+}
+
+async function applySink() {
+  const sink = selectedSink();
+  writeSetting('audioSink', sink);
+  if (!audio) return;
+  try {
+    if (sink === SINK_NONE) await audio.suspend();
+    else {
+      if (typeof audio.setSinkId === 'function') {
+        await audio.setSinkId(sink === SINK_DEFAULT ? '' : sink);
+      }
+      await audio.resume();
+    }
+    audioPlayhead = audio.currentTime;
+  } catch (error) {
+    setStatus(`Could not use that audio output: ${error.message}`, true);
+  }
+}
+
+/** Never let the microphone run more than this far behind real time. */
+const MAX_AUDIO_LEAD = 0.15;
+
 function playAudio(payload) {
+  if (selectedSink() === SINK_NONE) return;
   if (!audio) {
-    audio = new AudioContext({ sampleRate: audioFormat.sampleRate, latencyHint: 'interactive' });
+    const sink = selectedSink();
+    // Pass the device at construction so not even the first chunk reaches the
+    // speakers, where Parsec would carry it back to the tablet as an echo.
+    audio = new AudioContext({
+      sampleRate: audioFormat.sampleRate,
+      latencyHint: 'interactive',
+      ...(sink === SINK_DEFAULT ? {} : { sinkId: sink })
+    });
     audioPlayhead = audio.currentTime;
   }
   const samples = payload.byteLength / 2;
@@ -154,8 +237,10 @@ function playAudio(payload) {
   source.buffer = buffer;
   source.connect(audio.destination);
   // Keep a small lead so scheduling jitter does not cause gaps.
+  // The tablet's and this computer's clocks differ slightly, so drop back to
+  // real time rather than let lip-sync delay build up over a long call.
   const now = audio.currentTime;
-  if (audioPlayhead < now + 0.02) audioPlayhead = now + 0.02;
+  if (audioPlayhead < now + 0.02 || audioPlayhead > now + MAX_AUDIO_LEAD) audioPlayhead = now + 0.02;
   source.start(audioPlayhead);
   audioPlayhead += buffer.duration;
 }
@@ -241,24 +326,75 @@ window.media.onFrame(frame => {
   }
 });
 
-window.media.onError(message => setStatus(message, true));
-window.media.onClosed(() => setStatus('Tablet disconnected.'));
+// Keep reconnecting while the user wants a connection: the tablet drops the
+// stream if Wi-Fi blips or Android briefly pauses the service behind Parsec.
+let wantConnected = false;
+let reconnectTimer = null;
 
-$('#mediaConnect').addEventListener('click', async e => {
+function scheduleReconnect() {
+  if (!wantConnected || reconnectTimer) return;
+  reconnectTimer = setTimeout(() => { reconnectTimer = null; connect(); }, 3000);
+}
+
+window.media.onError(message => { setStatus(message, true); scheduleReconnect(); });
+window.media.onClosed(() => {
+  setStatus(wantConnected ? 'Tablet disconnected. Reconnecting…' : 'Tablet disconnected.', wantConnected);
+  scheduleReconnect();
+});
+window.media.onDiscovered(host => {
+  const input = $('#mediaHost');
+  if (!input.value.trim()) input.value = host;
+});
+
+async function connect() {
   const host = $('#mediaHost').value.trim();
   if (!host) return setStatus('Enter the tablet address shown in the Android app.', true);
-  e.target.disabled = true;
+  writeSetting('mediaHost', host);
+  const [width, height] = $('#mediaSize').value.split('x').map(Number);
+  writeSetting('mediaSize', $('#mediaSize').value);
+  writeSetting('mediaFront', $('#mediaFront').checked ? '1' : '0');
+  $('#mediaConnect').disabled = true;
   setStatus('Connecting…');
   try {
-    await window.media.connect(host, { width: 1280, height: 720, frameRate: 30, audio: true });
+    await window.media.connect(host, {
+      width, height, frameRate: 30, audio: true, frontCamera: $('#mediaFront').checked
+    });
   } catch (error) {
     setStatus(error.message, true);
+    scheduleReconnect();
   } finally {
-    e.target.disabled = false;
+    $('#mediaConnect').disabled = false;
   }
+}
+
+$('#mediaConnect').addEventListener('click', () => {
+  wantConnected = true;
+  clearTimeout(reconnectTimer);
+  reconnectTimer = null;
+  connect();
 });
 
 $('#mediaDisconnect').addEventListener('click', async () => {
+  wantConnected = false;
+  clearTimeout(reconnectTimer);
+  reconnectTimer = null;
   await window.media.disconnect();
   setStatus('Disconnected.');
 });
+
+$('#audioSink').addEventListener('change', applySink);
+navigator.mediaDevices.addEventListener('devicechange', listSinks);
+
+// Camera output view: only the picture, so OBS can capture this window and
+// present it to Zoom, Teams or FaceTime through OBS Virtual Camera.
+function setCleanView(on) {
+  document.body.classList.toggle('clean', on);
+}
+$('#cleanView').addEventListener('click', () => setCleanView(true));
+$('#preview').addEventListener('dblclick', () => setCleanView(!document.body.classList.contains('clean')));
+document.addEventListener('keydown', e => { if (e.key === 'Escape') setCleanView(false); });
+
+$('#mediaHost').value = readSetting('mediaHost') || '';
+if (readSetting('mediaSize')) $('#mediaSize').value = readSetting('mediaSize');
+if (readSetting('mediaFront') !== null) $('#mediaFront').checked = readSetting('mediaFront') === '1';
+listSinks();
