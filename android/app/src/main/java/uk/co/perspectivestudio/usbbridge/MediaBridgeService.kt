@@ -205,7 +205,11 @@ class MediaBridgeService : Service() {
         private fun nowUs(): Long = (System.nanoTime() - startedAtNanos) / 1_000
 
         fun start() {
-            if (cameraId == null || size == null) {
+            // Locals, because smart casts on these properties do not reach
+            // into the fallback lambda below.
+            val id = cameraId
+            val requested = size
+            if (id == null || requested == null) {
                 MediaProtocol.writeAccept(
                     output,
                     MediaProtocol.Accept(0, 0, 0, MediaProtocol.STATUS_REFUSED)
@@ -220,9 +224,9 @@ class MediaBridgeService : Service() {
             // Build the encoder before accepting, so the geometry the client is
             // told is one the encoder actually took. Fall back to 720p if the
             // requested size is refused.
-            val video = runCatching { encoderFor(size) }.getOrElse { first ->
-                val fallback = camera.chooseSize(cameraId, DEFAULT_WIDTH, DEFAULT_HEIGHT)
-                if (fallback == size) throw first
+            val video = runCatching { encoderFor(requested) }.getOrElse { first ->
+                val fallback = camera.chooseSize(id, DEFAULT_WIDTH, DEFAULT_HEIGHT)
+                if (fallback == requested) throw first
                 encoderFor(fallback)
             }
             encoder = video
@@ -232,7 +236,7 @@ class MediaBridgeService : Service() {
                 accepted = true
             }
             video.start(::nowUs)
-            camera.start(cameraId, video.inputSurface, frameRate)
+            camera.start(id, video.inputSurface, frameRate)
 
             if (wantsAudio) {
                 // Describes the PCM the client is about to receive, so the
