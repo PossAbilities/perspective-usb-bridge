@@ -1,0 +1,14 @@
+{
+  "name": "perspective-camera-relay",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Pairs a Perspective tablet with a Mac or PC across networks and pipes the camera stream between them.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test \"test/**/*.test.js\""
+  },
+  "dependencies": {
+    "ws": "8.18.3"
+  }
+}

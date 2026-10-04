@@ -18,7 +18,7 @@
         <ol>
           <li><span>On the tablet, open Perspective USB Bridge and tap <b>Share camera &amp; microphone</b>.</span></li>
           <li><span>Switch to Parsec if you like. The camera keeps running in the background.</span></li>
-          <li><span>Enter the address shown on the tablet and press <b>Connect</b>.</span></li>
+          <li><span>Enter the address, or the pairing code if you are on different networks, and press <b>Connect</b>.</span></li>
         </ol>
       </div>
     </section>
@@ -26,12 +26,12 @@
     <aside class="controls">
       <div class="group">
         <h2>Tablet</h2>
-        <label for="mediaHost">Address</label>
+        <label for="mediaHost">Address or pairing code</label>
         <div class="row">
-          <input id="mediaHost" placeholder="192.168.1.92" spellcheck="false" autocomplete="off" inputmode="decimal">
+          <input id="mediaHost" placeholder="192.168.1.92 or 7KQ2M-X9WPA" spellcheck="false" autocomplete="off" autocapitalize="characters">
           <button id="mediaConnect">Connect</button>
         </div>
-        <p class="hint" id="mediaHint">Filled in automatically when the tablet is found on your Wi-Fi.</p>
+        <p class="hint" id="mediaHint">Same Wi-Fi: the address fills in automatically. Anywhere else: type the pairing code shown on the tablet.</p>
       </div>
 
       <div class="group">

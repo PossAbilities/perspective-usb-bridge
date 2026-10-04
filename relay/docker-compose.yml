@@ -1,0 +1,12 @@
+# Perspective camera relay. Stateless: no volumes, no database, nothing to back up.
+# Reached only through mhfa-caddy on the shared network; no host port is published.
+services:
+  perspective-relay:
+    build: ./app
+    container_name: perspective-relay
+    restart: unless-stopped
+    networks: [caddy]
+networks:
+  caddy:
+    external: true
+    name: ${CADDY_NETWORK}

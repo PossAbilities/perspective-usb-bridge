@@ -18,12 +18,12 @@ import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
+import java.io.Closeable
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.IOException
 import java.net.InetSocketAddress
 import java.net.ServerSocket
-import java.net.Socket
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
@@ -62,7 +62,7 @@ class MediaBridgeService : Service() {
     private val pool = Executors.newCachedThreadPool()
     private var serverSocket: ServerSocket? = null
     /** Open client sockets, closed on shutdown so their camera and mic are released. */
-    private val clients = ConcurrentHashMap.newKeySet<Socket>()
+    private val clients = ConcurrentHashMap.newKeySet<Closeable>()
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
     private var foregroundStarted = false
@@ -121,21 +121,59 @@ class MediaBridgeService : Service() {
                 try {
                     val client = socket.accept()
                     client.tcpNoDelay = true
-                    pool.execute { serve(client) }
+                    pool.execute { serve(SocketLink(client)) }
                 } catch (e: IOException) {
                     if (socket.isClosed) break
                     if (running.get()) publish("error", "Accept failed: ${e.message}")
                 }
             }
         }
+        pool.execute { relayLoop() }
     }
 
-    private fun serve(socket: Socket) {
-        clients.add(socket)
-        socket.use { client ->
-            val input = DataInputStream(BufferedInputStream(client.getInputStream()))
-            val output = DataOutputStream(BufferedOutputStream(client.getOutputStream(), 256 * 1024))
-            val peer = client.inetAddress.hostAddress ?: "client"
+    /**
+     * Keeps one connection open to the relay so a computer on another network
+     * can reach the camera with this tablet's pairing code. Each viewer ends
+     * its link, so reconnect after every session, backing off on failures.
+     */
+    private fun relayLoop() {
+        val code = RelayLink.pairingCode(this)
+        var delayMs = 2_000L
+        var reportedOnline = false
+        while (running.get()) {
+            val link = try {
+                RelayLink.connect(code)
+            } catch (e: IOException) {
+                if (reportedOnline || delayMs == 2_000L) {
+                    publish("relay", "Relay unreachable (${e.message}). Retrying; same-Wi-Fi connections still work.")
+                }
+                reportedOnline = false
+                sleepWhileRunning(delayMs)
+                delayMs = (delayMs * 2).coerceAtMost(60_000L)
+                continue
+            }
+            delayMs = 2_000L
+            if (!reportedOnline) {
+                publish("relay", "Ready for computers on other networks: code ${RelayLink.displayCode(code)}")
+                reportedOnline = true
+            }
+            serve(link)
+        }
+    }
+
+    private fun sleepWhileRunning(ms: Long) {
+        val until = System.currentTimeMillis() + ms
+        while (running.get() && System.currentTimeMillis() < until) {
+            try { Thread.sleep(250) } catch (_: InterruptedException) { return }
+        }
+    }
+
+    private fun serve(link: MediaLink) {
+        clients.add(link)
+        link.use { client ->
+            val input = DataInputStream(BufferedInputStream(client.input))
+            val output = DataOutputStream(BufferedOutputStream(client.output, 256 * 1024))
+            val peer = client.peer
             var session: Session? = null
             try {
                 val request = MediaProtocol.readRequest(input)
@@ -151,8 +189,12 @@ class MediaBridgeService : Service() {
                 }
             } catch (e: MediaProtocol.ProtocolException) {
                 publish("error", "Rejected $peer: ${e.message}")
-            } catch (_: IOException) {
-                // Client disconnected.
+            } catch (e: IOException) {
+                // Client disconnected, or a relay link closed while idle. Only
+                // worth saying if it cut a stream short.
+                if (session != null && e.message?.contains("relay", ignoreCase = true) == true) {
+                    publish("error", e.message ?: "Relay connection lost")
+                }
             } catch (e: Exception) {
                 val reason = "Stream failed: ${e.message ?: e.javaClass.simpleName}"
                 publish("error", reason)
@@ -163,7 +205,8 @@ class MediaBridgeService : Service() {
             } finally {
                 session?.stop()
                 clients.remove(client)
-                if (running.get()) publish("ready", "$peer disconnected")
+                // An idle relay link closes and reopens routinely; stay quiet about it.
+                if (running.get() && session != null) publish("ready", "$peer disconnected")
             }
         }
     }
@@ -172,7 +215,7 @@ class MediaBridgeService : Service() {
     private inner class Session(
         request: MediaProtocol.Request,
         private val output: DataOutputStream,
-        private val socket: Socket
+        private val link: Closeable
     ) {
         val alive = AtomicBoolean(true)
         /** Whether the handshake reply has gone out; an error before it needs a refusal first. */
@@ -299,7 +342,7 @@ class MediaBridgeService : Service() {
             publish("error", message)
             if (!alive.getAndSet(false)) return
             report(message)
-            runCatching { socket.close() }
+            runCatching { link.close() }
         }
 
         private fun send(type: Int, payload: ByteArray, keyframe: Boolean) =

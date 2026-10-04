@@ -363,7 +363,9 @@ function scheduleReconnect() {
 function explain(message) {
   const text = String(message || '');
   if (/ECONNREFUSED/i.test(text)) return 'Tablet not sharing. Tap Share camera & microphone on it.';
-  if (/ETIMEDOUT|EHOSTUNREACH|ENETUNREACH|in time/i.test(text)) return 'No reply from the tablet. Same Wi-Fi?';
+  if (/ETIMEDOUT|EHOSTUNREACH|ENETUNREACH|in time/i.test(text)) {
+    return 'No reply from the tablet. On different networks? Use its pairing code.';
+  }
   if (/ENOTFOUND|EINVAL/i.test(text)) return 'That address does not look right.';
   return text;
 }
@@ -405,7 +407,13 @@ async function connect() {
     wantConnected = false;
     updateConnectButton();
     $('#mediaHost').focus();
-    return setStatus('Enter the address shown on the tablet', 'error');
+    return setStatus('Enter the address or pairing code shown on the tablet', 'error');
+  }
+  // Android's internal mobile-data address: never reachable from outside.
+  if (/^192\.0\.0\./.test(host)) {
+    wantConnected = false;
+    updateConnectButton();
+    return setStatus('192.0.0.x is the tablet\'s mobile-data address. Use the pairing code instead.', 'error');
   }
   writeSetting('mediaHost', host);
   const [width, height] = selectedSize().split('x').map(Number);

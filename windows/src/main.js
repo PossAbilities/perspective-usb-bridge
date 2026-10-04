@@ -290,13 +290,126 @@ function openMediaWindow() {
 
 ipcMain.handle('media:open', async () => { openMediaWindow(); return true; });
 
+/**
+ * The camera relay on Ryan's Cloud (relay/server.js). Used when the tablet is
+ * on another network: both ends dial out to it and are paired by a code.
+ */
+const RELAY_URL = process.env.PERSPECTIVE_RELAY_URL || 'wss://camrelay.pixelhub.org.uk/relay';
+
+/** A pairing code as shown on the tablet (7KQ2M-X9WPA), or null for an address. */
+function relayCode(text) {
+  const code = String(text).replace(/[\s-]/g, '').toUpperCase();
+  return /^[A-Z0-9]{8,32}$/.test(code) && /[A-Z]/.test(code) ? code : null;
+}
+
+/** Turns relay close codes (relay/server.js CLOSE) into something to act on. */
+function relayCloseReason(code) {
+  switch (code) {
+    case 4004: return 'The tablet is not connected to the relay. On the tablet, tap Share camera & microphone, and check it has internet.';
+    case 4009: return 'Another computer connected with this code.';
+    case 4000: return 'That pairing code is not valid. Check it against the tablet.';
+    default: return '';
+  }
+}
+
+/**
+ * Shared by the direct and relay paths: both deliver the same byte stream,
+ * just in different-sized chunks.
+ */
+function mediaStreamHandler(onAccepted) {
+  const parser = new mediaClient.MediaStreamParser();
+  const state = { parser, tabletReason: '' };
+  state.push = chunk => {
+    let events;
+    try {
+      events = parser.push(chunk);
+    } catch (error) {
+      sendToMediaWindow('media:error', error.message);
+      closeMediaSocket();
+      return;
+    }
+    for (const event of events) {
+      if (event.kind === 'accepted') {
+        onAccepted();
+        if (!parser.refused) sendToMediaWindow('media:accepted', event);
+      } else if (event.type === mediaClient.TYPE_ERROR) {
+        state.tabletReason = event.payload.toString('utf8').trim();
+        sendToMediaWindow('media:error', `Tablet: ${state.tabletReason}`);
+      } else if (!parser.refused) {
+        // receivedAt lets the renderer measure arrival jitter and drift
+        // against the tablet's own timestamps.
+        sendToMediaWindow('media:frame', {
+          type: event.type,
+          keyframe: event.keyframe,
+          timestampUs: event.timestampUs,
+          receivedAt: Date.now(),
+          payload: event.payload
+        });
+      }
+    }
+  };
+  state.closed = () => {
+    if (parser.refused && !state.tabletReason) {
+      sendToMediaWindow('media:error', 'The tablet refused the stream. Is its camera available?');
+    }
+    sendToMediaWindow('media:closed', null);
+  };
+  return state;
+}
+
+function connectViaRelay(code, options) {
+  return new Promise((resolve, reject) => {
+    let opened = false;
+    let acceptTimer = null;
+    const ws = new WebSocket(`${RELAY_URL}?role=viewer&code=${code}`);
+    ws.binaryType = 'arraybuffer';
+    // Same shape closeMediaSocket() expects of a net.Socket.
+    const handle = {
+      removeAllListeners() { ws.onopen = ws.onmessage = ws.onerror = ws.onclose = null; clearTimeout(acceptTimer); },
+      destroy() { try { ws.close(); } catch { /* already closed */ } }
+    };
+    mediaSocket = handle;
+    const stream = mediaStreamHandler(() => clearTimeout(acceptTimer));
+
+    ws.onopen = () => {
+      opened = true;
+      keepAwake(true);
+      ws.send(mediaClient.buildRequest(options || {}));
+      // The relay adds a hop and the tablet may be on mobile data.
+      acceptTimer = setTimeout(() => {
+        if (!stream.parser.accepted) {
+          sendToMediaWindow('media:error', 'The tablet did not start the camera in time.');
+          ws.close();
+        }
+      }, 15000);
+      resolve({ connected: true, relay: true });
+    };
+    ws.onmessage = event => stream.push(Buffer.from(event.data));
+    ws.onerror = () => { /* onclose follows with the code */ };
+    ws.onclose = event => {
+      clearTimeout(acceptTimer);
+      if (mediaSocket === handle) mediaSocket = null;
+      const reason = relayCloseReason(event.code);
+      if (!opened) {
+        const message = reason || 'Could not reach the camera relay. Is this computer online?';
+        sendToMediaWindow('media:error', message);
+        sendToMediaWindow('media:closed', null);
+        return reject(new Error(message));
+      }
+      if (reason) sendToMediaWindow('media:error', reason);
+      stream.closed();
+    };
+  });
+}
+
 ipcMain.handle('media:connect', async (_event, host, options) => {
   if (!host) throw new Error('No tablet address.');
   closeMediaSocket();
 
+  const code = relayCode(host);
+  if (code) return connectViaRelay(code, options);
+
   return new Promise((resolve, reject) => {
-    const parser = new mediaClient.MediaStreamParser();
-    let tabletReason = '';
     const socket = net.createConnection({ host, port: mediaClient.PORT }, () => {
       socket.setNoDelay(true);
       keepAwake(true);
@@ -304,57 +417,26 @@ ipcMain.handle('media:connect', async (_event, host, options) => {
       resolve({ connected: true, host, port: mediaClient.PORT });
     });
     mediaSocket = socket;
+    const stream = mediaStreamHandler(() => socket.setTimeout(0));
 
     // The tablet is asked to start a camera, which can take a moment on cold
     // start; fail fast only on the connect itself.
     socket.setTimeout(8000, () => {
-      if (!parser.accepted) {
+      if (!stream.parser.accepted) {
         socket.destroy(new Error('The tablet did not start the camera in time.'));
       } else {
         socket.setTimeout(0);
       }
     });
 
-    socket.on('data', chunk => {
-      let events;
-      try {
-        events = parser.push(chunk);
-      } catch (error) {
-        sendToMediaWindow('media:error', error.message);
-        closeMediaSocket();
-        return;
-      }
-      for (const event of events) {
-        if (event.kind === 'accepted') {
-          socket.setTimeout(0);
-          if (!parser.refused) sendToMediaWindow('media:accepted', event);
-        } else if (event.type === mediaClient.TYPE_ERROR) {
-          tabletReason = event.payload.toString('utf8').trim();
-          sendToMediaWindow('media:error', `Tablet: ${tabletReason}`);
-        } else if (!parser.refused) {
-          // receivedAt lets the renderer measure arrival jitter and drift
-          // against the tablet's own timestamps.
-          sendToMediaWindow('media:frame', {
-            type: event.type,
-            keyframe: event.keyframe,
-            timestampUs: event.timestampUs,
-            receivedAt: Date.now(),
-            payload: event.payload
-          });
-        }
-      }
-    });
-
+    socket.on('data', chunk => stream.push(chunk));
     socket.on('error', error => {
       sendToMediaWindow('media:error', error.message);
       if (mediaSocket === socket) mediaSocket = null;
       reject(error);
     });
     socket.on('close', () => {
-      if (parser.refused && !tabletReason) {
-        sendToMediaWindow('media:error', 'The tablet refused the stream. Is its camera available?');
-      }
-      sendToMediaWindow('media:closed', null);
+      stream.closed();
       if (mediaSocket === socket) mediaSocket = null;
     });
   });

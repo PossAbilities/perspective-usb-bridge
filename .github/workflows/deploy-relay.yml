@@ -1,0 +1,35 @@
+name: Deploy camera relay to VPS
+on:
+  push:
+    branches: [ main ]
+    paths: [ 'relay/**', '.github/workflows/deploy-relay.yml' ]
+  workflow_dispatch: {}
+concurrency:
+  group: deploy-perspective-relay
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - name: Test the relay
+        working-directory: relay
+        run: npm install --no-audit --no-fund && npm test
+      - name: Set up SSH to the VPS
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" | base64 -d > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "${{ secrets.VPS_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+      - name: Ship code to the VPS
+        working-directory: relay
+        run: |
+          tar --exclude=node_modules --exclude=test -czf /tmp/relay.tar.gz .
+          scp -i ~/.ssh/deploy_key /tmp/relay.tar.gz \
+            "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/root/perspective-relay.tar.gz"
+      - name: Rebuild and restart on the VPS
+        run: |
+          ssh -i ~/.ssh/deploy_key "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
+            "rm -rf /opt/perspective-relay/app && mkdir -p /opt/perspective-relay/app && tar xzf /root/perspective-relay.tar.gz -C /opt/perspective-relay/app && bash /opt/perspective-relay/app/setup.sh"

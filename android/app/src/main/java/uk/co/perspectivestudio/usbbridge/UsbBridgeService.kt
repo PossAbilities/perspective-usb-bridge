@@ -287,15 +287,40 @@ class UsbBridgeService : Service() {
     private fun displayName(device: UsbDevice): String =
         device.productName?.takeIf { it.isNotBlank() } ?: "USB device"
 
-    /** Best-effort IPv4 address so the user can type it into Windows manually. */
+    /**
+     * The IPv4 address another computer is most likely to reach, so the user
+     * can type it in by hand. Taking the first address found picked mobile
+     * data's internal 192.0.0.x (464XLAT) address, which nothing can reach.
+     *
+     * Order: Wi-Fi/Ethernet private LAN addresses, then other private ones,
+     * then anything else that is not link-local or 192.0.0.x.
+     */
     private fun localAddress(): String? = runCatching {
         NetworkInterface.getNetworkInterfaces().toList()
             .filter { it.isUp && !it.isLoopback }
-            .flatMap { it.inetAddresses.toList() }
-            .filterIsInstance<Inet4Address>()
-            .firstOrNull { !it.isLinkLocalAddress }
+            .flatMap { nic -> nic.inetAddresses.toList().filterIsInstance<Inet4Address>().map { nic.name to it } }
+            .filterNot { (_, address) -> address.isLinkLocalAddress || isSpecialPurpose(address) }
+            .minByOrNull { (name, address) -> addressRank(name, address) }
+            ?.second
             ?.hostAddress
     }.getOrNull()
+
+    /** 192.0.0.0/24 is IETF special-purpose; Android uses it for the CLAT on IPv6-only mobile data. */
+    private fun isSpecialPurpose(address: Inet4Address): Boolean {
+        val b = address.address
+        return (b[0].toInt() and 0xFF) == 192 && b[1].toInt() == 0 && b[2].toInt() == 0
+    }
+
+    private fun addressRank(interfaceName: String, address: Inet4Address): Int {
+        val b = address.address.map { it.toInt() and 0xFF }
+        val lan = b[0] == 10 || (b[0] == 172 && b[1] in 16..31) || (b[0] == 192 && b[1] == 168)
+        val wifi = interfaceName.startsWith("wlan") || interfaceName.startsWith("eth")
+        return when {
+            lan && wifi -> 1
+            lan -> 2
+            else -> 3
+        }
+    }
 
     private fun publish(state: String, message: String) {
         sendBroadcast(Intent(ACTION_STATE).apply {

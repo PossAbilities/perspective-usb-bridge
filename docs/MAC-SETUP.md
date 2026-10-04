@@ -70,6 +70,23 @@ Perspective app      ── camera + mic, TCP ───►  Perspective Camera B
 7. **In your call app:** camera → **OBS Virtual Camera**, microphone →
    **BlackHole 2ch**.
 
+## On different networks (e.g. tablet out, Mac at home)
+
+The tablet's address only works when both devices are on the same Wi-Fi.
+Anywhere else, use the **pairing code** instead:
+
+1. On the tablet, tap **Share camera & microphone**. The camera card shows a
+   code such as `7KQ2M-X9WPA`.
+2. On the Mac, type that code into the **Address or pairing code** box and
+   press **Connect**.
+
+Both devices connect out to the Perspective relay on Ryan's Cloud, so nothing
+needs changing on either router. Mobile data uploads are slower than home
+Wi-Fi: use **720p** if the picture stutters.
+
+Never use an address starting `192.0.0.`: that is the tablet's internal
+mobile-data address and cannot be reached from anywhere else.
+
 ## Why the microphone goes to BlackHole, not your speakers
 
 Parsec sends everything the Mac plays back to the tablet. If the tablet

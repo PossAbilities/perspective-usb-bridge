@@ -1,0 +1,4 @@
+camrelay.pixelhub.org.uk {
+	tls internal
+	reverse_proxy perspective-relay:8080
+}

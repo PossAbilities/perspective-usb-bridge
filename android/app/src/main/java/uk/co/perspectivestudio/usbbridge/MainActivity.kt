@@ -53,6 +53,7 @@ class MainActivity : ComponentActivity() {
     private var pendingShareDeviceId: Int? = null
     private var receiversRegistered = false
     private var mediaRunning = mutableStateOf(MediaBridgeService.isRunning)
+    private val pairingCode by lazy { RelayLink.pairingCode(this) }
     private var mediaMessage = mutableStateOf(
         "Share this tablet's camera and microphone with your Mac or PC, then switch to Parsec."
     )
@@ -386,6 +387,14 @@ class MainActivity : ComponentActivity() {
                     address?.let { "On your Mac or PC, connect to $it (camera port ${MediaProtocol.PORT})." }
                         ?: "Connect this tablet to Wi-Fi to share its camera.",
                     color = TextPrimary
+                )
+                Spacer(Modifier.height(10.dp))
+                Text("On a different network? Enter this code on the Mac:", color = TextDim)
+                Text(
+                    RelayLink.displayCode(pairingCode),
+                    color = Lime,
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold
                 )
                 Spacer(Modifier.height(6.dp))
                 Text(message, color = TextDim)
