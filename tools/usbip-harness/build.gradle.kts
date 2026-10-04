@@ -20,6 +20,7 @@ bridgeSources.srcDir(layout.projectDirectory.dir("../../android/app/src/main/jav
 bridgeSources.filter.exclude(
     // Need the full Android framework: covered by the normal Android build.
     "**/MainActivity.kt",
+    "**/BrandUi.kt",
     "**/UsbBridgeService.kt",
     "**/MediaCapture.kt",
     "**/MediaBridgeService.kt",
