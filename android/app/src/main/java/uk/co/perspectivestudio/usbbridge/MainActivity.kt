@@ -13,10 +13,12 @@ import android.hardware.usb.UsbManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -26,20 +28,14 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 
 private const val ACTION_USB_PERMISSION = "uk.co.perspectivestudio.usbbridge.USB_PERMISSION"
-private val Midnight = Color(0xFF1A1546)
-private val Panel = Color(0xFF241D57)
-private val PanelRaised = Color(0xFF2C2466)
-private val TextPrimary = Color(0xFFF3F1FB)
-private val TextDim = Color(0xFFB3ABD6)
-private val Lime = Color(0xFFCFE96A)
-private val Orange = Color(0xFFF4592B)
 
 class MainActivity : ComponentActivity() {
     private lateinit var usb: UsbManager
@@ -53,6 +49,7 @@ class MainActivity : ComponentActivity() {
     private var pendingShareDeviceId: Int? = null
     private var receiversRegistered = false
     private var mediaRunning = mutableStateOf(MediaBridgeService.isRunning)
+    private var mediaStreaming = mutableStateOf(false)
     private val pairingCode by lazy { RelayLink.pairingCode(this) }
     private var mediaMessage = mutableStateOf(
         "Share this tablet's camera and microphone with your Mac or PC, then switch to Parsec."
@@ -104,6 +101,7 @@ class MainActivity : ComponentActivity() {
                     val state = intent.getStringExtra(MediaBridgeService.EXTRA_STATE) ?: ""
                     val text = intent.getStringExtra(MediaBridgeService.EXTRA_MESSAGE) ?: ""
                     mediaRunning.value = MediaBridgeService.isRunning
+                    if (state != "relay") mediaStreaming.value = state == "streaming"
                     // Keep a startup error on screen rather than the "stopped" that follows it.
                     val keepError = state == "stopped" && mediaMessage.value.startsWith("Problem:")
                     if (text.isNotBlank() && !keepError) {
@@ -141,6 +139,12 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Draw under the system bars (Android 15 does this regardless); the top
+        // bar paints the ink behind the status bar, as on the desktop.
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+        )
         super.onCreate(savedInstanceState)
         usb = getSystemService(Context.USB_SERVICE) as UsbManager
         refreshDevices()
@@ -159,6 +163,7 @@ class MainActivity : ComponentActivity() {
                     log = bridgeLog.value,
                     permissionTick = permissionTick.value,
                     mediaRunning = mediaRunning.value,
+                    mediaStreaming = mediaStreaming.value,
                     mediaMessage = mediaMessage.value
                 )
             }
@@ -263,160 +268,165 @@ class MainActivity : ComponentActivity() {
         log: List<String>,
         permissionTick: Int,
         mediaRunning: Boolean,
+        mediaStreaming: Boolean,
         mediaMessage: String
     ) {
-        Surface(color = Midnight, modifier = Modifier.fillMaxSize()) {
-            Column(
-                Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(24.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Image(
-                        painter = painterResource(R.drawable.ic_ps_mark),
-                        contentDescription = null,
-                        modifier = Modifier.size(56.dp)
-                    )
-                    Spacer(Modifier.width(14.dp))
-                    Column {
-                        Text(
-                            "USB Bridge",
-                            color = TextPrimary,
-                            style = MaterialTheme.typography.headlineMedium,
-                            fontWeight = FontWeight.ExtraBold
-                        )
-                        Text("Perspective Studio · drives, camera and microphone", color = TextDim)
-                    }
-                }
-                Spacer(Modifier.height(18.dp))
-
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = PanelRaised),
-                    shape = RoundedCornerShape(22.dp),
-                    modifier = Modifier.fillMaxWidth()
+        val (pillText, pillStatus) = when {
+            mediaStreaming -> "Streaming to your computer" to Status.Live
+            mediaRunning -> "Camera ready" to Status.Ok
+            shared.isNotEmpty() -> "Sharing ${shared.size} drive${if (shared.size == 1) "" else "s"}" to Status.Ok
+            else -> "Ready" to Status.Idle
+        }
+        Column(Modifier.fillMaxSize().background(Brand.Midnight)) {
+            TopBar("USB Bridge", pillText, pillStatus)
+            BoxWithConstraints(Modifier.fillMaxSize()) {
+                val wide = maxWidth >= 840.dp
+                Column(
+                    Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .windowInsetsPadding(WindowInsets.navigationBars)
+                        .padding(horizontal = 24.dp, vertical = 24.dp)
                 ) {
-                    Column(Modifier.padding(18.dp)) {
-                        SectionTitle("This tablet")
-                        Text(
-                            address?.let { "$it · USB/IP port ${UsbIpServer.PORT}" }
-                                ?: "Waiting for a Wi-Fi connection…",
-                            color = TextPrimary
-                        )
-                        Text("Type this address into Windows if it is not found automatically.", color = TextDim)
-                    }
-                }
-
-                Spacer(Modifier.height(18.dp))
-                MediaCard(address, mediaRunning, mediaMessage)
-                Spacer(Modifier.height(18.dp))
-
-                if (devices.isEmpty()) {
-                    Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(22.dp)) {
-                        Text("Plug a USB drive — or a USB hub with drives — into this Samsung tablet.", color = TextDim, modifier = Modifier.padding(20.dp))
-                    }
-                } else {
-                    val hubs = devices.filter(::isHub)
-                    val shareable = devices.filterNot(::isHub)
-
-                    if (hubs.isNotEmpty()) {
-                        Card(
-                            colors = CardDefaults.cardColors(containerColor = PanelRaised),
-                            shape = RoundedCornerShape(22.dp),
-                            modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp)
-                        ) {
-                            Column(Modifier.padding(18.dp)) {
-                                SectionTitle("USB hub connected")
-                                Text(
-                                    "${hubs.size} hub${if (hubs.size == 1) "" else "s"} connected. Drives attached through the hub appear separately below.",
-                                    color = TextDim
-                                )
+                    if (wide) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(36.dp)) {
+                            Column(Modifier.weight(1.1f)) {
+                                CameraPanel(address, mediaRunning, mediaStreaming, mediaMessage)
+                            }
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(28.dp)) {
+                                DrivesSection(usb, devices, shared, state, message, permissionTick)
+                                TabletSection(address)
+                                ActivityLog(log)
                             }
                         }
-                    }
-
-                    if (shareable.isEmpty()) {
-                        Text("The hub is connected, but no downstream USB drives are visible yet.", color = TextDim)
                     } else {
-                        shareable.forEach { DeviceCard(usb, it, it.deviceId in shared, permissionTick) }
+                        CameraPanel(address, mediaRunning, mediaStreaming, mediaMessage)
+                        Spacer(Modifier.height(32.dp))
+                        DrivesSection(usb, devices, shared, state, message, permissionTick)
+                        Spacer(Modifier.height(28.dp))
+                        TabletSection(address)
+                        Spacer(Modifier.height(20.dp))
+                        ActivityLog(log)
                     }
+                    Spacer(Modifier.height(28.dp))
+                    Text(
+                        "Perspective USB Bridge · v0.7 prototype",
+                        style = Brand.hint.copy(fontSize = 12.sp),
+                        modifier = Modifier.fillMaxWidth(),
+                        textAlign = TextAlign.Center
+                    )
                 }
-
-                Spacer(Modifier.height(14.dp))
-                Text(state.replaceFirstChar { it.uppercase() }, color = Lime, fontWeight = FontWeight.Bold)
-                Text(message, color = TextDim)
-
-                if (log.isNotEmpty()) {
-                    Spacer(Modifier.height(18.dp))
-                    Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(22.dp)) {
-                        Column(Modifier.padding(18.dp)) {
-                            SectionTitle("Activity")
-                            Spacer(Modifier.height(8.dp))
-                            log.forEach { Text(it, color = TextDim, style = MaterialTheme.typography.bodySmall) }
-                        }
-                    }
-                }
-
-                Spacer(Modifier.height(30.dp))
-                Text("v0.7 multi-drive + hub prototype", color = TextDim)
             }
         }
     }
 
     @Composable
-    private fun SectionTitle(text: String) {
-        Text(
-            text,
-            color = TextPrimary,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(bottom = 4.dp)
-        )
+    private fun CameraPanel(address: String?, running: Boolean, streaming: Boolean, message: String) {
+        HeroPanel {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Camera & microphone", style = Brand.heading.copy(fontSize = 18.sp), modifier = Modifier.weight(1f))
+                if (running) StatusDot(if (streaming) Status.Live else Status.Ok, size = 10)
+            }
+            Spacer(Modifier.height(6.dp))
+            Text(
+                when {
+                    streaming -> "Streaming to your computer. Switch to Parsec whenever you like."
+                    running -> "Ready. Switch to Parsec any time; the camera keeps running in the background."
+                    else -> "Share this tablet's camera and microphone with your Mac or PC, then carry on in Parsec."
+                },
+                style = Brand.body.copy(color = Brand.Dim)
+            )
+            if (running) {
+                Spacer(Modifier.height(20.dp))
+                Text("Anywhere: enter this code on the Mac", style = Brand.hint)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    RelayLink.displayCode(pairingCode),
+                    style = Brand.title.copy(fontSize = 34.sp, letterSpacing = 3.sp, color = Brand.Lime)
+                )
+                Spacer(Modifier.height(14.dp))
+                LabelledValue(
+                    "Same Wi-Fi: or use this address",
+                    address ?: "Not on Wi-Fi"
+                )
+            }
+            if (message.isNotBlank()) {
+                Spacer(Modifier.height(14.dp))
+                Text(
+                    message,
+                    style = Brand.hint.copy(color = if (message.startsWith("Problem")) Brand.Danger else Brand.Dim)
+                )
+            }
+            Spacer(Modifier.height(20.dp))
+            if (running) {
+                SecondaryButton("Stop sharing camera", onClick = { stopMedia() })
+            } else {
+                PrimaryButton("Share camera & microphone", onClick = { requestMedia() }, modifier = Modifier.fillMaxWidth())
+            }
+        }
     }
 
     @Composable
-    private fun MediaCard(address: String?, running: Boolean, message: String) {
-        Card(
-            colors = CardDefaults.cardColors(containerColor = Panel),
-            shape = RoundedCornerShape(22.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(Modifier.padding(20.dp)) {
-                SectionTitle("Camera & microphone")
-                Text(
-                    address?.let { "On your Mac or PC, connect to $it (camera port ${MediaProtocol.PORT})." }
-                        ?: "Connect this tablet to Wi-Fi to share its camera.",
-                    color = TextPrimary
-                )
-                Spacer(Modifier.height(10.dp))
-                Text("On a different network? Enter this code on the Mac:", color = TextDim)
-                Text(
-                    RelayLink.displayCode(pairingCode),
-                    color = Lime,
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(Modifier.height(6.dp))
-                Text(message, color = TextDim)
-                Spacer(Modifier.height(14.dp))
-                if (running) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.size(10.dp).background(Lime, CircleShape))
-                        Spacer(Modifier.width(10.dp))
-                        Text("Live — you can switch to Parsec now", color = Lime, fontWeight = FontWeight.Bold)
+    private fun DrivesSection(
+        usb: UsbManager,
+        devices: List<UsbDevice>,
+        shared: Set<Int>,
+        state: String,
+        message: String,
+        permissionTick: Int
+    ) {
+        Section("USB drives") {
+            val hubs = devices.filter(::isHub)
+            val shareable = devices.filterNot(::isHub)
+            when {
+                devices.isEmpty() ->
+                    Text("Plug a USB drive, or a USB hub with drives, into this tablet.", style = Brand.hint)
+                shareable.isEmpty() ->
+                    Text("The hub is connected, but no drives are visible through it yet.", style = Brand.hint)
+                else -> Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, Brand.Line, RoundedCornerShape(14.dp))
+                        .background(Brand.Panel, RoundedCornerShape(14.dp))
+                ) {
+                    shareable.forEachIndexed { index, device ->
+                        if (index > 0) HorizontalDivider(color = Brand.Line)
+                        DeviceRow(usb, device, device.deviceId in shared, permissionTick)
                     }
-                    Spacer(Modifier.height(8.dp))
-                    OutlinedButton(onClick = { stopMedia() }, shape = RoundedCornerShape(999.dp)) {
-                        Text("Stop sharing camera", color = TextPrimary)
-                    }
-                } else {
-                    Button(
-                        onClick = { requestMedia() },
-                        colors = ButtonDefaults.buttonColors(containerColor = Orange),
-                        shape = RoundedCornerShape(999.dp)
-                    ) { Text("Share camera & microphone") }
                 }
             }
+            if (hubs.isNotEmpty()) {
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    "${hubs.size} USB hub${if (hubs.size == 1) "" else "s"} connected; drives on it are listed separately.",
+                    style = Brand.hint
+                )
+            }
+            if (message.isNotBlank() && devices.isNotEmpty()) {
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    "${state.replaceFirstChar { it.uppercase() }} · $message",
+                    style = Brand.hint.copy(color = if (state.contains("denied", true)) Brand.Danger else Brand.Dim)
+                )
+            }
+        }
+    }
+
+    @Composable
+    private fun TabletSection(address: String?) {
+        Section("This tablet") {
+            LabelledValue(
+                "Drive sharing address (Windows)",
+                address?.let { "$it · port ${UsbIpServer.PORT}" } ?: "Waiting for Wi-Fi…"
+            )
+        }
+    }
+
+    @Composable
+    private fun ActivityLog(log: List<String>) {
+        if (log.isEmpty()) return
+        Disclosure("Activity") {
+            log.forEach { Text(it, style = Brand.mono.copy(fontSize = 12.sp, color = Brand.Dim), modifier = Modifier.padding(vertical = 2.dp)) }
         }
     }
 
@@ -447,42 +457,58 @@ class MainActivity : ComponentActivity() {
         // oblige the service to post a camera notification just to shut down.
         stopService(Intent(this, MediaBridgeService::class.java))
         mediaRunning.value = false
+        mediaStreaming.value = false
         mediaMessage.value = "Camera and microphone sharing stopped."
     }
 
     @Composable
-    private fun DeviceCard(usb: UsbManager, device: UsbDevice, isShared: Boolean, permissionTick: Int) {
+    private fun DeviceRow(usb: UsbManager, device: UsbDevice, isShared: Boolean, permissionTick: Int) {
         // permissionTick forces recomposition after a permission grant, otherwise
         // the button keeps reading the stale hasPermission() result.
         val hasPermission = remember(device.deviceId, permissionTick) { usb.hasPermission(device) }
-        Card(
-            colors = CardDefaults.cardColors(containerColor = Panel),
-            shape = RoundedCornerShape(22.dp),
-            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(Modifier.padding(20.dp)) {
-                Text(displayName(device), color = TextPrimary, fontWeight = FontWeight.Bold)
-                Text(deviceTypeLabel(device), color = Lime)
-                Text("VID %04X · PID %04X".format(device.vendorId, device.productId), color = TextDim)
-                Spacer(Modifier.height(14.dp))
-
-                if (isShared) {
-                    Text("Shared with Windows", color = Lime, fontWeight = FontWeight.Bold)
-                    TextButton(onClick = { stopBridge(device) }) { Text("Stop sharing", color = TextPrimary) }
-                } else {
-                    Button(
-                        onClick = {
-                            if (!usb.hasPermission(device)) {
-                                pendingShareDeviceId = device.deviceId
-                                requestUsbPermission(device)
-                            } else startBridge(device)
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = Orange),
-                        shape = RoundedCornerShape(999.dp)
-                    ) {
-                        Text(if (hasPermission) "Share with Windows" else "Allow access")
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        displayName(device),
+                        style = Brand.heading.copy(fontSize = 15.sp),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    if (isShared) {
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "Shared",
+                            style = Brand.hint.copy(fontSize = 11.sp, fontWeight = FontWeight.Medium, color = Brand.Lime),
+                            modifier = Modifier
+                                .background(Brand.Lime.copy(alpha = 0.14f), CircleShape)
+                                .padding(horizontal = 8.dp, vertical = 2.dp)
+                        )
                     }
                 }
+                Text(deviceTypeLabel(device), style = Brand.hint)
+                Text(
+                    "VID %04X · PID %04X".format(device.vendorId, device.productId),
+                    style = Brand.mono.copy(fontSize = 12.sp, color = Brand.Dim)
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            if (isShared) {
+                SecondaryButton("Stop", onClick = { stopBridge(device) })
+            } else {
+                PrimaryButton(
+                    if (hasPermission) "Share" else "Allow access",
+                    onClick = {
+                        if (!usb.hasPermission(device)) {
+                            pendingShareDeviceId = device.deviceId
+                            requestUsbPermission(device)
+                        } else startBridge(device)
+                    }
+                )
             }
         }
     }
