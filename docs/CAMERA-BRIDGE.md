@@ -123,6 +123,8 @@ Client sends 16 bytes:
 Server replies with 16 bytes: the same magic and version, then the width, height
 and frame rate it actually chose, then a status byte (0 accepted, non-zero
 refused). The client must use the returned geometry, not what it asked for.
+A refusal is followed by an error frame giving the reason, then the tablet
+closes the connection.
 
 ### Frames
 
@@ -138,7 +140,8 @@ Every frame after the handshake carries a 20-byte header:
 | 16 | 4 | payload length |
 
 Types: `1` video config (H.264 SPS/PPS), `2` video frame (Annex B), `3` audio
-config, `4` audio frame (PCM). A config frame always precedes the first frame of
+config, `4` audio frame (PCM), `5` error (UTF-8 text explaining why the tablet is
+about to close the stream). A config frame always precedes the first frame of
 its kind, and is repeated when the encoder reconfigures.
 
 Timestamps share one clock across both streams so the Windows side can
