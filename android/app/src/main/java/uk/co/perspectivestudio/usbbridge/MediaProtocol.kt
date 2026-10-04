@@ -28,6 +28,8 @@ object MediaProtocol {
     const val TYPE_VIDEO_FRAME = 2
     const val TYPE_AUDIO_CONFIG = 3
     const val TYPE_AUDIO_FRAME = 4
+    /** UTF-8 text explaining why the tablet is about to close the stream. */
+    const val TYPE_ERROR = 5
 
     const val FLAG_KEYFRAME = 0x01
 

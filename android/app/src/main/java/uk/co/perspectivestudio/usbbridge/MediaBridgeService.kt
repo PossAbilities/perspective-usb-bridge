@@ -140,9 +140,13 @@ class MediaBridgeService : Service() {
             try {
                 val request = MediaProtocol.readRequest(input)
                 publish("streaming", "$peer asked for ${request.width}x${request.height}@${request.frameRate}")
-                session = Session(request, output).also { it.start() }
+                // Recorded before start() so a failure halfway through still
+                // releases whatever camera or encoder was already opened.
+                val current = Session(request, output, client)
+                session = current
+                current.start()
                 // The client has nothing more to say; block until it hangs up.
-                while (running.get() && session.alive.get()) {
+                while (running.get() && current.alive.get()) {
                     if (input.read() < 0) break
                 }
             } catch (e: MediaProtocol.ProtocolException) {
@@ -150,7 +154,12 @@ class MediaBridgeService : Service() {
             } catch (_: IOException) {
                 // Client disconnected.
             } catch (e: Exception) {
-                publish("error", "Stream failed: ${e.message ?: e.javaClass.simpleName}")
+                val reason = "Stream failed: ${e.message ?: e.javaClass.simpleName}"
+                publish("error", reason)
+                session?.report(reason) ?: runCatching {
+                    MediaProtocol.writeAccept(output, MediaProtocol.Accept(0, 0, 0, MediaProtocol.STATUS_REFUSED))
+                    MediaProtocol.writeFrame(output, MediaProtocol.TYPE_ERROR, 0, reason.toByteArray())
+                }
             } finally {
                 session?.stop()
                 clients.remove(client)
@@ -162,16 +171,16 @@ class MediaBridgeService : Service() {
     /** One client's camera, encoder and microphone, plus the writer they share. */
     private inner class Session(
         request: MediaProtocol.Request,
-        private val output: DataOutputStream
+        private val output: DataOutputStream,
+        private val socket: Socket
     ) {
         val alive = AtomicBoolean(true)
+        /** Whether the handshake reply has gone out; an error before it needs a refusal first. */
+        @Volatile private var accepted = false
         private val writeLock = Any()
         private val startedAtNanos = System.nanoTime()
 
-        private val camera = CameraSource(this@MediaBridgeService) { message ->
-            publish("error", message)
-            alive.set(false)
-        }
+        private val camera = CameraSource(this@MediaBridgeService) { message -> fail(message) }
         private val cameraId = camera.cameraId(request.wantsFrontCamera)
         private val size = cameraId?.let {
             camera.chooseSize(
@@ -196,31 +205,38 @@ class MediaBridgeService : Service() {
         private fun nowUs(): Long = (System.nanoTime() - startedAtNanos) / 1_000
 
         fun start() {
-            if (cameraId == null || size == null) {
+            // Locals, because smart casts on these properties do not reach
+            // into the fallback lambda below.
+            val id = cameraId
+            val requested = size
+            if (id == null || requested == null) {
                 MediaProtocol.writeAccept(
                     output,
                     MediaProtocol.Accept(0, 0, 0, MediaProtocol.STATUS_REFUSED)
                 )
+                accepted = true
+                report("No usable camera on this tablet")
                 alive.set(false)
                 publish("error", "No usable camera on this tablet")
                 return
             }
 
-            MediaProtocol.writeAccept(output, MediaProtocol.Accept(size.width, size.height, frameRate))
-
-            val video = VideoEncoder(
-                width = size.width,
-                height = size.height,
-                frameRate = frameRate,
-                bitRate = bitRateFor(size.width, size.height, frameRate),
-                onFrame = { bytes, keyframe ->
-                    send(MediaProtocol.TYPE_VIDEO_FRAME, bytes, keyframe)
-                },
-                onConfig = { bytes -> send(MediaProtocol.TYPE_VIDEO_CONFIG, bytes, false) }
-            )
+            // Build the encoder before accepting, so the geometry the client is
+            // told is one the encoder actually took. Fall back to 720p if the
+            // requested size is refused.
+            val video = runCatching { encoderFor(requested) }.getOrElse { first ->
+                val fallback = camera.chooseSize(id, DEFAULT_WIDTH, DEFAULT_HEIGHT)
+                if (fallback == requested) throw first
+                encoderFor(fallback)
+            }
             encoder = video
+
+            synchronized(writeLock) {
+                MediaProtocol.writeAccept(output, MediaProtocol.Accept(video.width, video.height, frameRate))
+                accepted = true
+            }
             video.start(::nowUs)
-            camera.start(cameraId, video.inputSurface, frameRate)
+            camera.start(id, video.inputSurface, frameRate)
 
             if (wantsAudio) {
                 // Describes the PCM the client is about to receive, so the
@@ -247,9 +263,43 @@ class MediaBridgeService : Service() {
 
             publish(
                 "streaming",
-                "Streaming ${size.width}x${size.height}@${frameRate}" +
+                "Streaming ${video.width}x${video.height}@${frameRate}" +
                     if (wantsAudio) " with audio" else " (video only)"
             )
+        }
+
+        private fun encoderFor(size: android.util.Size) = VideoEncoder(
+            width = size.width,
+            height = size.height,
+            frameRate = frameRate,
+            bitRate = bitRateFor(size.width, size.height, frameRate),
+            onFrame = { bytes, keyframe -> send(MediaProtocol.TYPE_VIDEO_FRAME, bytes, keyframe) },
+            onConfig = { bytes -> send(MediaProtocol.TYPE_VIDEO_CONFIG, bytes, false) }
+        )
+
+        /** Tell the client why the stream is ending; best effort. */
+        fun report(message: String) {
+            runCatching {
+                synchronized(writeLock) {
+                    if (!accepted) {
+                        MediaProtocol.writeAccept(output, MediaProtocol.Accept(0, 0, 0, MediaProtocol.STATUS_REFUSED))
+                        accepted = true
+                    }
+                    MediaProtocol.writeFrame(output, MediaProtocol.TYPE_ERROR, nowUs(), message.toByteArray())
+                }
+            }
+        }
+
+        /**
+         * A failure after the stream started, e.g. the camera erroring. Closing
+         * the socket wakes the serve loop, which is blocked reading, so the
+         * client sees a clean disconnect instead of a frozen picture.
+         */
+        private fun fail(message: String) {
+            publish("error", message)
+            if (!alive.getAndSet(false)) return
+            report(message)
+            runCatching { socket.close() }
         }
 
         private fun send(type: Int, payload: ByteArray, keyframe: Boolean) =

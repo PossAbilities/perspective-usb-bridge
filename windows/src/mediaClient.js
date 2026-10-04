@@ -21,6 +21,8 @@ const TYPE_VIDEO_CONFIG = 1;
 const TYPE_VIDEO_FRAME = 2;
 const TYPE_AUDIO_CONFIG = 3;
 const TYPE_AUDIO_FRAME = 4;
+/** UTF-8 text: why the tablet is about to close the stream. */
+const TYPE_ERROR = 5;
 
 const FLAG_KEYFRAME = 0x01;
 const REQUEST_AUDIO = 0x01;
@@ -50,6 +52,7 @@ class MediaStreamParser {
   constructor() {
     this.buffer = Buffer.alloc(0);
     this.accepted = null;
+    this.refused = false;
   }
 
   /** @returns {Array<{kind: string, ...}>} events completed by this chunk */
@@ -73,9 +76,9 @@ class MediaStreamParser {
       };
       this.buffer = this.buffer.subarray(HANDSHAKE_SIZE);
       events.push({ kind: 'accepted', ...this.accepted });
-      if (this.accepted.status !== STATUS_OK) {
-        throw new Error('The tablet refused the stream. Is a camera available?');
-      }
+      // A refusal is followed by a TYPE_ERROR frame saying why, so keep
+      // parsing; the caller decides what to show.
+      this.refused = this.accepted.status !== STATUS_OK;
     }
 
     for (;;) {
@@ -185,6 +188,7 @@ module.exports = {
   TYPE_VIDEO_FRAME,
   TYPE_AUDIO_CONFIG,
   TYPE_AUDIO_FRAME,
+  TYPE_ERROR,
   STATUS_OK,
   buildRequest,
   MediaStreamParser,

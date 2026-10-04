@@ -310,6 +310,7 @@ setInterval(render, 500);
 // ------------------------------------------------------------------- wiring
 
 window.media.onAccepted(info => {
+  lastError = '';
   setStatus(`Connected · ${info.width}×${info.height} at ${info.frameRate} fps`, 'busy');
   canvas.width = info.width;
   canvas.height = info.height;
@@ -350,6 +351,8 @@ window.media.onFrame(frame => {
 // stream if Wi-Fi blips or Android briefly pauses the service behind Parsec.
 let wantConnected = false;
 let reconnectTimer = null;
+/** The most recent failure, kept visible through the disconnect that follows it. */
+let lastError = '';
 
 function scheduleReconnect() {
   if (!wantConnected || reconnectTimer) return;
@@ -372,13 +375,20 @@ function updateConnectButton() {
 }
 
 window.media.onError(message => {
-  setStatus(wantConnected ? `${explain(message)} Retrying…` : explain(message), 'error');
+  lastError = explain(message);
+  setStatus(wantConnected ? `${lastError} Retrying…` : lastError, 'error');
+  $('#placeholderTitle').textContent = lastError;
   scheduleReconnect();
 });
 window.media.onClosed(() => {
   showPicture(false);
-  $('#placeholderTitle').textContent = wantConnected ? 'Reconnecting to your tablet…' : 'Waiting for your tablet';
-  setStatus(wantConnected ? 'Reconnecting…' : 'Disconnected', wantConnected ? 'busy' : 'idle');
+  if (lastError) {
+    setStatus(wantConnected ? `${lastError} Retrying…` : lastError, 'error');
+    $('#placeholderTitle').textContent = lastError;
+  } else {
+    $('#placeholderTitle').textContent = wantConnected ? 'Reconnecting to your tablet…' : 'Waiting for your tablet';
+    setStatus(wantConnected ? 'Reconnecting…' : 'Disconnected', wantConnected ? 'busy' : 'idle');
+  }
   scheduleReconnect();
 });
 window.media.onDiscovered(host => {
